@@ -1,0 +1,24 @@
+import { NextResponse } from "next/server";
+import { connectToDatabase } from "@/lib/mongodb";
+import { BatchModel } from "@/lib/models";
+
+export async function GET() {
+  try {
+    await connectToDatabase();
+    const batches = await BatchModel.find().sort({ name: 1 });
+    return NextResponse.json(batches);
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    await connectToDatabase();
+    const body = await req.json();
+    const batch = await BatchModel.create(body);
+    return NextResponse.json(batch, { status: 201 });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
