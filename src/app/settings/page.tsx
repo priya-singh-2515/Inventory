@@ -33,8 +33,8 @@ export default function SettingsPage() {
   } = useForm<CompanySettingsFormInput>({
     defaultValues: {
       gstin: "27AAACG0000A1Z5",
-      legalName: "Acme Enterprises India Pvt Ltd",
-      tradeName: "Acme Store",
+      legalName: "Ethara AI Solutions Pvt Ltd",
+      tradeName: "Ethara AI Store",
       address1: "Unit 101, Business Park",
       location: "Mumbai",
       pincode: 400001,
