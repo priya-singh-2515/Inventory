@@ -175,7 +175,7 @@ export default function CreateSalesInvoicePage() {
         const err = await res.json();
         toast.error(err.error || "Failed to create sales invoice", { id: toastId });
       }
-    } catch (e) {
+    } catch {
       toast.error("Network error occurred", { id: toastId });
     }
   }

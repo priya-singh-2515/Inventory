@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Receipt, ArrowLeft, Search, Filter, ArrowUpRight, ArrowDownLeft, RefreshCw } from "lucide-react";
+import { Receipt, ArrowLeft, Search, ArrowUpRight, ArrowDownLeft, RefreshCw } from "lucide-react";
 
 interface Transaction {
   id: string;

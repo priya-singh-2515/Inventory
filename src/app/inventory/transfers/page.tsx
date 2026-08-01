@@ -47,7 +47,7 @@ export default function StockTransfersPage() {
       ]);
       if (trnRes.ok) setTransfers(await trnRes.json());
       if (itemRes.ok) setAvailableItems(await itemRes.json());
-    } catch (e) {
+    } catch {
       toast.error("Failed to load stock transfers");
     } finally {
       setLoading(false);
@@ -98,7 +98,7 @@ export default function StockTransfersPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to record stock transfer", { id: toastId });
       }
-    } catch (e) {
+    } catch {
       toast.error("Network error occurred", { id: toastId });
     }
   }

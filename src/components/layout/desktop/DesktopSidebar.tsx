@@ -39,7 +39,7 @@ export function DesktopSidebar() {
           <Boxes className="w-6 h-6" />
         </div>
         <div>
-          <h1 className="font-bold text-lg leading-tight tracking-wide">Acme Inventory</h1>
+          <h1 className="font-bold text-lg leading-tight tracking-wide">Ethara AI Inventory</h1>
           <p className="text-xs text-blue-200">GST Billing & Stock Hub</p>
         </div>
       </div>

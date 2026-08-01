@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { TrendingUp, ArrowLeft, Plus, X } from "lucide-react";
+import { ArrowLeft, Plus, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { ItemMaster } from "@/lib/types/inventory";
@@ -65,7 +65,7 @@ export default function DebitNotesPage() {
         const data = await res.json();
         setDebitNotes(data);
       }
-    } catch (e) {
+    } catch {
       toast.error("Failed to load debit notes");
     } finally {
       setLoading(false);
@@ -137,7 +137,7 @@ export default function DebitNotesPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to record Debit Note", { id: toastId });
       }
-    } catch (e) {
+    } catch {
       toast.error("Network error occurred", { id: toastId });
     }
   }

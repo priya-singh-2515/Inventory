@@ -77,7 +77,7 @@ export default function InventoryPage() {
         const sumData = await sumRes.json();
         setSummary(sumData);
       }
-    } catch (e) {
+    } catch {
       toast.error("Failed to load inventory data");
     } finally {
       setLoading(false);
@@ -105,7 +105,7 @@ export default function InventoryPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to create item", { id: toastId });
       }
-    } catch (e) {
+    } catch {
       toast.error("Network error occurred", { id: toastId });
     }
   }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { DebitNoteModel, ItemModel } from "@/lib/models";
-import { getNextCounter } from "@/lib/utils/counter-utils";
+import { getNextCounterValue } from "@/lib/utils/counter-utils";
 import { processStockMovement } from "@/lib/services/stock-engine-service";
 
 export async function GET() {
@@ -19,8 +19,10 @@ export async function POST(req: Request) {
     await connectToDatabase();
     const body = await req.json();
 
-    const seq = await getNextCounter("debit_note");
-    const debitNoteNo = body.debitNoteNo || `DN-${String(seq).padStart(4, "0")}`;
+    let debitNoteNo = body.debitNoteNo;
+    if (!debitNoteNo) {
+      debitNoteNo = await getNextCounterValue("debit-note", "DN");
+    }
 
     const debitNote = await DebitNoteModel.create({
       ...body,

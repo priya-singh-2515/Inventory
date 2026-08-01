@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, Plus, Search, Calendar, User, CheckCircle, XCircle } from "lucide-react";
+import { Plus, Search, Calendar, User, CheckCircle, XCircle } from "lucide-react";
 import { Invoice } from "@/lib/types/invoice";
 
 export default function SalesInvoicesPage() {

@@ -174,7 +174,7 @@ export default function CreatePurchaseBillPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to save purchase bill", { id: toastId });
       }
-    } catch (e) {
+    } catch {
       toast.error("Network error occurred", { id: toastId });
     }
   }

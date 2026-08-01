@@ -1,8 +1,33 @@
 import mongoose, { Schema, Model } from "mongoose";
+import { Invoice, PurchaseInvoice } from "@/lib/types/invoice";
+import {
+  StockLedgerEntry,
+  StockAdjustment,
+  StockTransfer,
+  ItemMaster,
+} from "@/lib/types/inventory";
+import {
+  Party,
+  CreditNote,
+  DebitNote,
+  JournalEntry,
+  Voucher,
+  Transporter,
+  Godown,
+  Batch,
+} from "@/lib/types/common";
+import { CompanyDetails } from "@/lib/types/settings";
 
-// Helper to prevent overwriting models in Next.js HMR
+// Helper to prevent overwriting models in Next.js HMR.
+// Note: the non-generic `mongoose.model(...)` overload is used deliberately.
+// The generic form `mongoose.model<T>(...)` makes the TypeScript checker blow
+// its heap on this schema set, so the type is applied via a cast instead.
+// The generic is type-only, so this is runtime-identical.
 function getOrCreateModel<T>(name: string, schema: Schema): Model<T> {
-  return (mongoose.models[name] as Model<T>) || mongoose.model<T>(name, schema);
+  return (
+    (mongoose.models[name] as Model<T>) ||
+    (mongoose.model(name, schema) as unknown as Model<T>)
+  );
 }
 
 // 1. InvoiceItem Schema
@@ -351,21 +376,39 @@ const GodownSchema = new Schema({ name: { type: String, required: true }, addres
 const BatchSchema = new Schema({ name: { type: String, required: true }, expiryDate: String });
 const CounterSchema = new Schema({ name: { type: String, required: true, unique: true }, value: { type: Number, default: 0 } });
 
-export const InvoiceModel = getOrCreateModel("Invoice", InvoiceSchema);
-export const PurchaseInvoiceModel = getOrCreateModel("PurchaseInvoice", PurchaseInvoiceSchema);
-export const StockLedgerModel = getOrCreateModel("StockLedger", StockLedgerSchema);
-export const StockAdjustmentModel = getOrCreateModel("StockAdjustment", StockAdjustmentSchema);
-export const StockTransferModel = getOrCreateModel("StockTransfer", StockTransferSchema);
-export const PartyModel = getOrCreateModel("Party", PartySchema);
-export const ItemModel = getOrCreateModel("Item", ItemSchema);
-export const CompanyModel = getOrCreateModel("Company", CompanySchema);
-export const CreditNoteModel = getOrCreateModel("CreditNote", CreditNoteSchema);
-export const DebitNoteModel = getOrCreateModel("DebitNote", DebitNoteSchema);
+// Document shapes. `_id` is omitted from the domain interfaces because Mongoose
+// supplies it as an ObjectId on the hydrated document; keeping the interface's
+// optional `string` version would intersect to `never`.
+type Doc<T> = Omit<T, "_id">;
+
+interface Counter {
+  name: string;
+  value: number;
+}
+
+// StockLedgerEntry describes the JSON-serialized shape the client receives,
+// where `date` and `itemId` arrive as strings. The stored document uses the
+// native Date/ObjectId types declared in StockLedgerSchema.
+type StockLedgerDoc = Omit<Doc<StockLedgerEntry>, "date" | "itemId"> & {
+  date: Date;
+  itemId: mongoose.Types.ObjectId;
+};
+
+export const InvoiceModel = getOrCreateModel<Doc<Invoice>>("Invoice", InvoiceSchema);
+export const PurchaseInvoiceModel = getOrCreateModel<Doc<PurchaseInvoice>>("PurchaseInvoice", PurchaseInvoiceSchema);
+export const StockLedgerModel = getOrCreateModel<StockLedgerDoc>("StockLedger", StockLedgerSchema);
+export const StockAdjustmentModel = getOrCreateModel<Doc<StockAdjustment>>("StockAdjustment", StockAdjustmentSchema);
+export const StockTransferModel = getOrCreateModel<Doc<StockTransfer>>("StockTransfer", StockTransferSchema);
+export const PartyModel = getOrCreateModel<Doc<Party>>("Party", PartySchema);
+export const ItemModel = getOrCreateModel<Doc<ItemMaster>>("Item", ItemSchema);
+export const CompanyModel = getOrCreateModel<Doc<CompanyDetails>>("Company", CompanySchema);
+export const CreditNoteModel = getOrCreateModel<Doc<CreditNote>>("CreditNote", CreditNoteSchema);
+export const DebitNoteModel = getOrCreateModel<Doc<DebitNote>>("DebitNote", DebitNoteSchema);
 export const DeliveryChallanModel = getOrCreateModel("DeliveryChallan", DeliveryChallanSchema);
-export const JournalModel = getOrCreateModel("Journal", JournalSchema);
-export const PaymentModel = getOrCreateModel("Payment", VoucherSchema);
-export const ReceiptModel = getOrCreateModel("Receipt", VoucherSchema);
-export const TransporterModel = getOrCreateModel("Transporter", TransporterSchema);
-export const GodownModel = getOrCreateModel("Godown", GodownSchema);
-export const BatchModel = getOrCreateModel("Batch", BatchSchema);
-export const CounterModel = getOrCreateModel("Counter", CounterSchema);
+export const JournalModel = getOrCreateModel<Doc<JournalEntry>>("Journal", JournalSchema);
+export const PaymentModel = getOrCreateModel<Doc<Voucher>>("Payment", VoucherSchema);
+export const ReceiptModel = getOrCreateModel<Doc<Voucher>>("Receipt", VoucherSchema);
+export const TransporterModel = getOrCreateModel<Doc<Transporter>>("Transporter", TransporterSchema);
+export const GodownModel = getOrCreateModel<Doc<Godown>>("Godown", GodownSchema);
+export const BatchModel = getOrCreateModel<Doc<Batch>>("Batch", BatchSchema);
+export const CounterModel = getOrCreateModel<Counter>("Counter", CounterSchema);

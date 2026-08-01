@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { CreditNoteModel, ItemModel } from "@/lib/models";
-import { getNextCounter } from "@/lib/utils/counter-utils";
+import { getNextCounterValue } from "@/lib/utils/counter-utils";
 import { processStockMovement } from "@/lib/services/stock-engine-service";
 
 export async function GET() {
@@ -19,8 +19,10 @@ export async function POST(req: Request) {
     await connectToDatabase();
     const body = await req.json();
 
-    const seq = await getNextCounter("credit_note");
-    const creditNoteNo = body.creditNoteNo || `CN-${String(seq).padStart(4, "0")}`;
+    let creditNoteNo = body.creditNoteNo;
+    if (!creditNoteNo) {
+      creditNoteNo = await getNextCounterValue("credit-note", "CN");
+    }
 
     const creditNote = await CreditNoteModel.create({
       ...body,

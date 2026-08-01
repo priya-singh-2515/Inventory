@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { TrendingDown, ArrowLeft, Plus, X } from "lucide-react";
+import { ArrowLeft, Plus, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { ItemMaster } from "@/lib/types/inventory";
@@ -43,7 +43,6 @@ export default function CreditNotesPage() {
     handleSubmit,
     reset,
     setValue,
-    watch,
     formState: { errors },
   } = useForm<CreditNoteFormInput>({
     defaultValues: {
@@ -66,7 +65,7 @@ export default function CreditNotesPage() {
         const data = await res.json();
         setCreditNotes(data);
       }
-    } catch (e) {
+    } catch {
       toast.error("Failed to load credit notes");
     } finally {
       setLoading(false);
@@ -138,7 +137,7 @@ export default function CreditNotesPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to record Credit Note", { id: toastId });
       }
-    } catch (e) {
+    } catch {
       toast.error("Network error occurred", { id: toastId });
     }
   }

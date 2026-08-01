@@ -52,7 +52,7 @@ export default function StockAdjustmentsPage() {
       ]);
       if (adjRes.ok) setAdjustments(await adjRes.json());
       if (itemRes.ok) setAvailableItems(await itemRes.json());
-    } catch (e) {
+    } catch {
       toast.error("Failed to load stock adjustments");
     } finally {
       setLoading(false);
@@ -104,7 +104,7 @@ export default function StockAdjustmentsPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to save stock adjustment", { id: toastId });
       }
-    } catch (e) {
+    } catch {
       toast.error("Network error occurred", { id: toastId });
     }
   }

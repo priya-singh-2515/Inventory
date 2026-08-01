@@ -25,7 +25,7 @@ export function DesktopHeader() {
             setCompanyName(compData.tradeName || compData.legalName);
           }
         }
-      } catch (e) {
+      } catch {
         // silent fallback
       }
     }

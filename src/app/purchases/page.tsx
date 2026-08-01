@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ShoppingBag, Plus, Search, Calendar, User, CheckCircle, Tag } from "lucide-react";
+import { Plus, Search, Calendar, User, Tag } from "lucide-react";
 import { PurchaseInvoice } from "@/lib/types/invoice";
 
 export default function PurchaseInvoicesPage() {

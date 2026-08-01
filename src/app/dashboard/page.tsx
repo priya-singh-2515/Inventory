@@ -5,11 +5,8 @@ import Link from "next/link";
 import {
   FileText,
   ShoppingBag,
-  Package,
   AlertTriangle,
-  TrendingUp,
   Boxes,
-  DollarSign,
 } from "lucide-react";
 
 export default function DashboardPage() {

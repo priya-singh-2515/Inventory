@@ -78,7 +78,7 @@ export default function SettingsPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to save settings", { id: toastId });
       }
-    } catch (e) {
+    } catch {
       toast.error("Network error occurred", { id: toastId });
     }
   }
