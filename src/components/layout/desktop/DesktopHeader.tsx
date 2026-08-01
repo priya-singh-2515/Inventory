@@ -2,9 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Plus, ShoppingBag, Package } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Plus, ShoppingBag, Package, LogOut } from "lucide-react";
+import { signOut, useSession } from "@/lib/auth-client";
 
 export function DesktopHeader() {
+  const router = useRouter();
+  const { data: session } = useSession();
   const [lowStockCount, setLowStockCount] = useState<number>(0);
   const [companyName, setCompanyName] = useState<string>("Ethara AI Store");
 
@@ -31,6 +35,12 @@ export function DesktopHeader() {
     }
     fetchData();
   }, []);
+
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+    router.refresh();
+  }
 
   return (
     <header className="hidden lg:flex items-center justify-between h-[72px] px-8 bg-white border-b border-[#e5e5e5] sticky top-0 z-30 shadow-xs">
@@ -73,6 +83,22 @@ export function DesktopHeader() {
           <Plus className="w-4 h-4" />
           <span>New Sales Invoice</span>
         </Link>
+
+        <div className="flex items-center gap-3 pl-4 ml-1 border-l border-slate-200">
+          <div className="text-right leading-tight">
+            <p className="text-xs font-semibold text-slate-700">{session?.user?.name ?? "Account"}</p>
+            <p className="text-[11px] text-slate-400">{session?.user?.email}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            title="Sign out"
+            aria-label="Sign out"
+            className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </header>
   );

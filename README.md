@@ -13,6 +13,7 @@ Built with Next.js 16 (App Router), MongoDB via Mongoose, and TypeScript.
 - [Quick Start](#quick-start)
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
+- [Authentication](#authentication)
 - [Directory Layout](#directory-layout)
 - [Data Model](#data-model)
 - [Core Business Flows](#core-business-flows)
@@ -44,6 +45,15 @@ cp .env.example .env.local
 |---|---|---|
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017/invoice-db` |
 | `NEXT_PUBLIC_APP_URL` | Public base URL (client-visible) | `http://localhost:3000` |
+| `BETTER_AUTH_SECRET` | Session encryption key — **required in production** | none |
+| `BETTER_AUTH_URL` | Base URL Better Auth issues cookies for | `http://localhost:3000` |
+| `MONGODB_TRANSACTIONS` | `true` only on a replica set / Atlas — see below | `false` |
+
+Generate the auth secret with:
+
+```bash
+openssl rand -base64 32
+```
 
 Then:
 
@@ -51,11 +61,17 @@ Then:
 npm run dev
 ```
 
-Open <http://localhost:3000> — it redirects to `/inventory`.
+Open <http://localhost:3000>. You'll be redirected to `/login` — create an account at `/signup`
+first.
 
 No seed step is required. On the first call to `GET /api/company`, a default company profile is
 created automatically so the tax engine has a home state to compare against. Edit it under
 **Settings** before issuing real documents.
+
+> **`MONGODB_TRANSACTIONS`**: a standalone `mongod` rejects transactions outright
+> (`Transaction numbers are only allowed on a replica set member or mongos`), which breaks sign-up.
+> It defaults to `false` so any deployment works. Set it to `true` on a replica set or Atlas to make
+> Better Auth's multi-step writes atomic.
 
 ### Scripts
 
@@ -79,6 +95,7 @@ created automatically so the tax engine has a home state to compare against. Edi
 | Framework | Next.js 16.2 (App Router, Turbopack) |
 | UI | React 19, Tailwind CSS 4, Radix UI primitives |
 | Forms | React Hook Form + Zod (via `@hookform/resolvers`) |
+| Auth | Better Auth 1.6 (email + password, cookie sessions) |
 | Database | MongoDB + Mongoose 9 |
 | Validation | Zod 3 |
 | Charts | Recharts |
@@ -141,12 +158,75 @@ flowchart TD
 
 ---
 
+## Authentication
+
+Email + password sign-in via [Better Auth](https://better-auth.com), with httpOnly cookie sessions.
+The whole application is gated — there is no anonymous access to any page or API route.
+
+### Pieces
+
+| File | Role |
+|---|---|
+| [`src/lib/auth.ts`](src/lib/auth.ts) | Server config — adapter, password rules, session lifetime |
+| [`src/lib/auth-client.ts`](src/lib/auth-client.ts) | Browser client — `signIn`, `signUp`, `signOut`, `useSession` |
+| [`src/app/api/auth/[...all]/route.ts`](src/app/api/auth/[...all]/route.ts) | Mounts every Better Auth endpoint |
+| [`src/proxy.ts`](src/proxy.ts) | The gate — validates the session on every request |
+| [`src/app/login`](src/app/login/page.tsx) · [`src/app/signup`](src/app/signup/page.tsx) | The two screens |
+| [`src/components/layout/AppShell.tsx`](src/components/layout/AppShell.tsx) | Renders auth screens without the app nav chrome |
+
+Better Auth stores its own `user`, `session`, and `account` collections alongside the business
+collections. It opens its own `MongoClient` because it needs a raw MongoDB `Db`, not a Mongoose
+connection; the client is cached on `globalThis` so hot reloads reuse one pool.
+
+Sessions last 7 days and refresh their expiry once a day. Minimum password length is 8.
+
+### How the gate works
+
+```mermaid
+flowchart TD
+    Req[Incoming request] --> Proxy[proxy.ts]
+    Proxy --> Get["auth.api.getSession(headers)"]
+    Get --> Valid{Valid session?}
+    Valid -->|no, /api/*|401["401 { error: 'Unauthorized' }"]
+    Valid -->|"no, /login or /signup"| Allow[Render page]
+    Valid -->|no, any other page| Redir["307 → /login?redirect=..."]
+    Valid -->|yes, /login or /signup| Home["307 → /inventory"]
+    Valid -->|yes| Pass[Render / handle]
+```
+
+Three things worth knowing:
+
+1. **It validates the session, it does not merely check for a cookie.** A forged
+   `better-auth.session_token` value is rejected — verified. The cheaper cookie-presence check
+   (`getSessionCookie`) would have accepted it, which is why it is not used here.
+2. **`proxy.ts`, not `middleware.ts`.** Next.js 16 renamed the convention. `proxy` always runs on the
+   Node.js runtime, which is what makes the MongoDB session lookup possible — and it also means a
+   `runtime` key in the `config` export is rejected at build time.
+3. **API routes get a 401, pages get a redirect.** The matcher excludes `/api/auth/*` so sign-in and
+   sign-up stay reachable while signed out.
+
+Because the gate covers every route in one place, individual API handlers do not repeat the session
+check. That is a deliberate trade-off: it keeps the 18 route handlers untouched, but it does mean
+the gate is the single point of failure — narrowing the matcher would silently expose routes.
+
+### CSRF
+
+Better Auth rejects cross-origin state-changing requests with `403 MISSING_OR_NULL_ORIGIN`. Verified:
+a sign-out sent with `Origin: https://evil.example` and a valid session cookie is refused and the
+session survives. Requests with no `Origin` header at all are also refused — which is why `curl`
+testing of these endpoints needs `-H "Origin: http://localhost:3000"`.
+
+---
+
 ## Directory Layout
 
 ```
 src/
+├── proxy.ts                     # Auth gate — runs before every matched request
+│
 ├── app/
 │   ├── api/                     # Route handlers (the REST surface)
+│   │   ├── auth/[...all]/       # Better Auth endpoints (public)
 │   │   ├── invoices/            # Sales invoices  (GET, POST, [id]: GET/PUT/DELETE)
 │   │   ├── purchases/           # Purchase bills  (GET, POST, [id]: GET/DELETE)
 │   │   ├── items/               # Item master     (GET, POST, [id]: GET/PUT/DELETE)
@@ -163,15 +243,19 @@ src/
 │   │   ├── godowns/             # Warehouse master
 │   │   └── batches/             # Batch master
 │   │
-│   ├── layout.tsx               # Shell: sidebar + headers + toaster
+│   ├── layout.tsx               # html/body + toaster
 │   ├── page.tsx                 # Redirects to /inventory
+│   ├── login/ · signup/         # Auth screens (rendered bare)
 │   └── <feature>/page.tsx       # Feature screens
 │
 ├── components/layout/
+│   ├── AppShell.tsx             # Chrome vs. bare layout by route
 │   ├── desktop/                 # DesktopSidebar, DesktopHeader
 │   └── mobile/                  # MobileHeader
 │
 ├── lib/
+│   ├── auth.ts                  # Better Auth server config
+│   ├── auth-client.ts           # Better Auth browser client
 │   ├── models/index.ts          # All Mongoose schemas + models
 │   ├── mongodb.ts               # Cached connection helper
 │   ├── services/
@@ -398,8 +482,12 @@ provided — so manual numbering never burns a sequence value.
 All endpoints return JSON. Errors respond `{ error: string }` with status `500`, or `404` where the
 resource is addressed by id.
 
+Every endpoint below requires a valid session; unauthenticated calls get `401 { error: "Unauthorized" }`
+from the proxy. The exception is `/api/auth/*`, which is public by necessity.
+
 | Endpoint | Methods | Purpose |
 |---|---|---|
+| `/api/auth/*` | `GET`, `POST` | Better Auth — sign-up, sign-in, sign-out, session (**public**) |
 | `/api/invoices` | `GET`, `POST` | List / create sales invoices |
 | `/api/invoices/[id]` | `GET`, `PUT`, `DELETE` | Fetch, update, cancel+revert |
 | `/api/purchases` | `GET`, `POST` | List / create purchase bills |
