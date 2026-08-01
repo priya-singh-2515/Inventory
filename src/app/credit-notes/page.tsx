@@ -253,7 +253,7 @@ export default function CreditNotesPage() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Customer Name *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Acme Corp"
+                  placeholder="e.g. Ethara AI Store"
                   {...register("partyName", { required: "Customer name is required" })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs"
                 />

@@ -6,7 +6,7 @@ import { AlertTriangle, Plus, ShoppingBag, Package } from "lucide-react";
 
 export function DesktopHeader() {
   const [lowStockCount, setLowStockCount] = useState<number>(0);
-  const [companyName, setCompanyName] = useState<string>("Acme Enterprises");
+  const [companyName, setCompanyName] = useState<string>("Ethara AI Store");
 
   useEffect(() => {
     async function fetchData() {
