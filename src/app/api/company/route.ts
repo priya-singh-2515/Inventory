@@ -18,7 +18,7 @@ export async function GET() {
         stateCode: "27",
         state: "Maharashtra",
         phone: "9876543210",
-        email: "info@acmestore.in",
+        email: "info@store.in",
         bankName: "HDFC Bank",
         bankAccountNo: "50200012345678",
         bankIfsc: "HDFC0000123",
