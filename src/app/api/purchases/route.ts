@@ -1,15 +1,30 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/company-context";
 import { connectToDatabase } from "@/lib/mongodb";
+import { paginate, readPageRequest, searchFilter } from "@/lib/pagination";
 import { PurchaseInvoiceModel, ItemModel, CompanyModel } from "@/lib/models";
 import { calculateInvoiceTaxes } from "@/lib/services/invoice-calculator";
 import { processStockMovement } from "@/lib/services/stock-engine-service";
 import { getNextCounterValue } from "@/lib/utils/counter-utils";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     await connectToDatabase();
-    const purchases = await PurchaseInvoiceModel.find().sort({ createdAt: -1 });
-    return NextResponse.json(purchases);
+    const ctx = await requirePermission(req, "purchases", "view");
+    if (!ctx.ok) return ctx.response;
+    const { companyId } = ctx.context;
+    const page = readPageRequest(req);
+    const result = await paginate(PurchaseInvoiceModel, {
+      companyId,
+      ...searchFilter(page.search, [
+        "purchaseInvoiceNumber",
+        "supplierInvoiceNo",
+        "supplierName",
+        "supplierGstin",
+        "supplierState",
+      ]),
+    }, page);
+    return NextResponse.json(result);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -18,14 +33,17 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     await connectToDatabase();
+    const ctx = await requirePermission(req, "purchases", "manage");
+    if (!ctx.ok) return ctx.response;
+    const { companyId } = ctx.context;
     const body = await req.json();
 
     let purchaseInvoiceNumber = body.purchaseInvoiceNumber;
     if (!purchaseInvoiceNumber) {
-      purchaseInvoiceNumber = await getNextCounterValue("purchase-invoice", "PUR");
+      purchaseInvoiceNumber = await getNextCounterValue(companyId, "purchase-invoice", "PUR");
     }
 
-    const company = await CompanyModel.findOne();
+    const company = await CompanyModel.findOne({ _id: companyId });
     const companyState = company?.state || "Maharashtra";
 
     const calcResult = calculateInvoiceTaxes(
@@ -36,6 +54,7 @@ export async function POST(req: Request) {
 
     const newPurchase = await PurchaseInvoiceModel.create({
       ...body,
+      companyId,
       purchaseInvoiceNumber,
       items: calcResult.items,
       totalTaxable: calcResult.totalTaxable,
@@ -47,7 +66,7 @@ export async function POST(req: Request) {
     if (newPurchase.status !== "Cancelled") {
       for (const item of newPurchase.items) {
         if (item.type === "Product") {
-          let dbItem = await ItemModel.findOne({ name: item.name });
+          let dbItem = await ItemModel.findOne({ companyId, name: item.name });
           if (!dbItem) {
             // Auto-create item if missing
             dbItem = await ItemModel.create({
@@ -64,6 +83,7 @@ export async function POST(req: Request) {
           }
 
           await processStockMovement({
+            companyId,
             itemId: dbItem._id.toString(),
             itemName: dbItem.name,
             transactionType: "Purchase Invoice",

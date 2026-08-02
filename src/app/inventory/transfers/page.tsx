@@ -6,6 +6,7 @@ import { Plus, ArrowLeft } from "lucide-react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { StockTransfer, ItemMaster } from "@/lib/types/inventory";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 
 interface TransferFormInput {
   sourceGodown: string;
@@ -21,6 +22,10 @@ export default function StockTransfersPage() {
   const [availableItems, setAvailableItems] = useState<ItemMaster[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
+  const dialogRef = useDialogA11y({
+    isOpen: isOpen,
+    onClose: () => setIsOpen(false),
+  });
 
   const {
     register,
@@ -43,10 +48,13 @@ export default function StockTransfersPage() {
     try {
       const [trnRes, itemRes] = await Promise.all([
         fetch("/api/stock-transfers"),
-        fetch("/api/items"),
+        fetch("/api/items?all=true"),
       ]);
       if (trnRes.ok) setTransfers(await trnRes.json());
-      if (itemRes.ok) setAvailableItems(await itemRes.json());
+      if (itemRes.ok) {
+        const payload = await itemRes.json();
+        setAvailableItems(payload.data ?? payload);
+      }
     } catch {
       toast.error("Failed to load stock transfers");
     } finally {
@@ -180,8 +188,14 @@ export default function StockTransfersPage() {
       {/* Modal */}
       {isOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-200">
-            <h3 className="text-lg font-bold text-slate-900">New Inter-Godown Stock Transfer</h3>
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transfer-dialog-title"
+            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-200"
+          >
+            <h3 id="transfer-dialog-title" className="text-lg font-bold text-slate-900">New Inter-Godown Stock Transfer</h3>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>

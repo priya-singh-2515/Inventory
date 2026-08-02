@@ -6,6 +6,9 @@ import { ArrowLeft, Plus, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { ItemMaster } from "@/lib/types/inventory";
+import { Invoice } from "@/lib/types/invoice";
+import { formatInr } from "@/lib/utils/invoice-format";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 
 interface CreditNoteRecord {
   _id: string;
@@ -36,7 +39,13 @@ export default function CreditNotesPage() {
   const [creditNotes, setCreditNotes] = useState<CreditNoteRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const dialogRef = useDialogA11y({
+    isOpen: showModal,
+    onClose: () => setShowModal(false),
+  });
   const [itemsMaster, setItemsMaster] = useState<ItemMaster[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [sourceInvoice, setSourceInvoice] = useState<Invoice | null>(null);
 
   const {
     register,
@@ -62,8 +71,8 @@ export default function CreditNotesPage() {
     try {
       const res = await fetch("/api/credit-notes");
       if (res.ok) {
-        const data = await res.json();
-        setCreditNotes(data);
+        const payload = await res.json();
+        setCreditNotes(payload.data ?? payload);
       }
     } catch {
       toast.error("Failed to load credit notes");
@@ -74,10 +83,25 @@ export default function CreditNotesPage() {
 
   async function loadItems() {
     try {
-      const res = await fetch("/api/items");
+      const res = await fetch("/api/items?all=true");
       if (res.ok) {
-        const data = await res.json();
-        setItemsMaster(data);
+        const payload = await res.json();
+        setItemsMaster(payload.data ?? payload);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function loadInvoices() {
+    try {
+      const res = await fetch("/api/invoices");
+      if (res.ok) {
+        const payload = await res.json();
+        const data: Invoice[] = payload.data ?? payload;
+        // A cancelled invoice has already had its stock reverted — returning
+        // against it would double-count.
+        setInvoices(data.filter((inv) => inv.status !== "Cancelled"));
       }
     } catch (e) {
       console.error(e);
@@ -87,7 +111,43 @@ export default function CreditNotesPage() {
   useEffect(() => {
     loadCreditNotes();
     loadItems();
+    loadInvoices();
   }, []);
+
+  /** Picking the original invoice fills in the customer and scopes the items. */
+  function handleSelectInvoice(invoiceId: string) {
+    const found = invoices.find((inv) => inv._id === invoiceId) ?? null;
+    setSourceInvoice(found);
+
+    setValue("selectedItemName", "");
+    setValue("returnQty", 1);
+    setValue("returnRate", 0);
+
+    if (!found) {
+      setValue("invoiceNumber", "");
+      return;
+    }
+
+    setValue("invoiceNumber", found.invoiceNumber);
+    setValue("partyName", found.partyName);
+    setValue("partyAddress", found.partyAddress ?? "");
+    setValue("partyState", found.partyState ?? "Maharashtra");
+  }
+
+  /** Lines available to return: the invoice's own lines, else the full master. */
+  const returnableItems = sourceInvoice
+    ? (sourceInvoice.items ?? []).map((line) => ({
+        name: line.name,
+        detail: `${line.qty} ${line.unit} @ ${formatInr(line.rate)}`,
+        qty: line.qty,
+        rate: line.rate,
+      }))
+    : itemsMaster.map((item) => ({
+        name: item.name,
+        detail: `Stock: ${item.stock} ${item.unit}`,
+        qty: 1,
+        rate: item.sellingRate,
+      }));
 
   async function onSubmit(data: CreditNoteFormInput) {
     if (!data.selectedItemName) {
@@ -219,15 +279,44 @@ export default function CreditNotesPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="credit-note-dialog-title"
+            className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4"
+          >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-[#0b2641] text-lg">Issue Sales Return Credit Note</h3>
+              <h3 id="credit-note-dialog-title" className="font-bold text-[#0b2641] text-lg">Issue Sales Return Credit Note</h3>
               <button onClick={() => setShowModal(false)} className="p-1 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Original Sales Invoice
+                </label>
+                <select
+                  value={sourceInvoice?._id ?? ""}
+                  onChange={(e) => handleSelectInvoice(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold"
+                >
+                  <option value="">— Not linked (enter details manually) —</option>
+                  {invoices.map((inv) => (
+                    <option key={inv._id} value={inv._id}>
+                      {inv.invoiceNumber} · {inv.partyName} · {formatInr(inv.totalAmount)} · {inv.date}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {sourceInvoice
+                    ? "Customer details filled from the invoice; only its line items can be returned."
+                    : "Pick an invoice to auto-fill the customer and restrict the returnable items."}
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Return Date *</label>
@@ -242,9 +331,12 @@ export default function CreditNotesPage() {
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Original Invoice No</label>
                   <input
                     type="text"
-                    placeholder="e.g. INV-0001"
+                    placeholder="e.g. INV-001"
+                    readOnly={Boolean(sourceInvoice)}
                     {...register("invoiceNumber")}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono"
+                    className={`w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono ${
+                      sourceInvoice ? "bg-slate-100 text-slate-500" : "bg-slate-50"
+                    }`}
                   />
                 </div>
               </div>
@@ -276,16 +368,19 @@ export default function CreditNotesPage() {
                   {...register("selectedItemName", {
                     required: "Product item is required",
                     onChange: (e) => {
-                      const found = itemsMaster.find((i) => i.name === e.target.value);
-                      if (found) setValue("returnRate", found.sellingRate);
+                      const line = returnableItems.find((i) => i.name === e.target.value);
+                      if (line) {
+                        setValue("returnRate", line.rate);
+                        setValue("returnQty", line.qty);
+                      }
                     },
                   })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold"
                 >
                   <option value="">Select Item Returned</option>
-                  {itemsMaster.map((i) => (
-                    <option key={i._id} value={i.name}>
-                      {i.name} (Stock: {i.stock} {i.unit})
+                  {returnableItems.map((line) => (
+                    <option key={line.name} value={line.name}>
+                      {line.name} ({line.detail})
                     </option>
                   ))}
                 </select>

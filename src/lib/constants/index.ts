@@ -117,3 +117,23 @@ export const ITC_ELIGIBILITY_OPTIONS = [
 ] as const;
 
 export const PAYMENT_MODES = ["Cash", "Bank Transfer", "UPI", "Cheque", "Credit Card"];
+
+export interface UnitOption {
+  /** GST standard UoM code, e.g. "NOS" — this is what is stored on records. */
+  code: string;
+  /** Human-readable expansion, e.g. "NUMBERS". */
+  label: string;
+}
+
+/**
+ * UNITS split into its code/label halves for use in <select> inputs.
+ * Only the code is persisted, which keeps existing records (stored as "NOS",
+ * "PCS", etc.) valid.
+ */
+export const UNIT_OPTIONS: UnitOption[] = UNITS.map((entry) => {
+  const separator = entry.indexOf("-");
+  return {
+    code: entry.slice(0, separator),
+    label: entry.slice(separator + 1),
+  };
+});

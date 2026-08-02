@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { StockAdjustment, ItemMaster } from "@/lib/types/inventory";
 import { STOCK_ADJUSTMENT_REASONS } from "@/lib/constants";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 
 interface AdjustmentFormInput {
   type: "Stock In" | "Stock Out";
@@ -22,6 +23,10 @@ export default function StockAdjustmentsPage() {
   const [availableItems, setAvailableItems] = useState<ItemMaster[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
+  const dialogRef = useDialogA11y({
+    isOpen: isOpen,
+    onClose: () => setIsOpen(false),
+  });
 
   const {
     register,
@@ -48,10 +53,13 @@ export default function StockAdjustmentsPage() {
     try {
       const [adjRes, itemRes] = await Promise.all([
         fetch("/api/stock-adjustments"),
-        fetch("/api/items"),
+        fetch("/api/items?all=true"),
       ]);
       if (adjRes.ok) setAdjustments(await adjRes.json());
-      if (itemRes.ok) setAvailableItems(await itemRes.json());
+      if (itemRes.ok) {
+        const payload = await itemRes.json();
+        setAvailableItems(payload.data ?? payload);
+      }
     } catch {
       toast.error("Failed to load stock adjustments");
     } finally {
@@ -205,8 +213,14 @@ export default function StockAdjustmentsPage() {
       {/* Modal */}
       {isOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-200">
-            <h3 className="text-lg font-bold text-slate-900">New Stock Adjustment</h3>
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="adjustment-dialog-title"
+            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-200"
+          >
+            <h3 id="adjustment-dialog-title" className="text-lg font-bold text-slate-900">New Stock Adjustment</h3>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>

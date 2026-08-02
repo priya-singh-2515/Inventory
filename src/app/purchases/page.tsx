@@ -1,39 +1,45 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, Search, Calendar, User, Tag } from "lucide-react";
+import { Plus, Search, CheckCircle, XCircle, Eye } from "lucide-react";
 import { PurchaseInvoice } from "@/lib/types/invoice";
+import { formatInr } from "@/lib/utils/invoice-format";
+import { usePagedList } from "@/hooks/usePagedList";
+
+/** ITC buckets get their own colour so ineligible input tax stands out. */
+const ITC_STYLES: Record<string, string> = {
+  Inputs: "bg-blue-50 text-blue-700 border-blue-200",
+  "Capital Goods": "bg-violet-50 text-violet-700 border-violet-200",
+  "Input Services": "bg-teal-50 text-teal-700 border-teal-200",
+  Ineligible: "bg-amber-50 text-amber-800 border-amber-300",
+};
 
 export default function PurchaseInvoicesPage() {
-  const [purchases, setPurchases] = useState<PurchaseInvoice[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
+  const {
+    rows: purchases,
+    search: searchTerm,
+    setSearch: setSearchTerm,
+    loading,
+    loadingMore,
+    hasMore,
+    loadMore,
+  } = usePagedList<PurchaseInvoice>({ endpoint: "/api/purchases" });
 
-  async function fetchPurchases() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/purchases");
-      if (res.ok) {
-        const data = await res.json();
-        setPurchases(data);
-      }
-    } catch (e) {
-      console.error("Failed to fetch purchases", e);
-    } finally {
-      setLoading(false);
-    }
-  }
 
-  useEffect(() => {
-    fetchPurchases();
-  }, []);
+  const filtered = purchases;
 
-  const filtered = purchases.filter(
-    (p) =>
-      p.purchaseInvoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.supplierInvoiceNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.supplierName.toLowerCase().includes(searchTerm.toLowerCase())
+  const totals = filtered.reduce(
+    (acc, p) => {
+      if (p.status === "Cancelled") return acc;
+      return {
+        taxable: acc.taxable + (Number(p.totalTaxable) || 0),
+        tax: acc.tax + (Number(p.totalTax) || 0),
+        amount: acc.amount + (Number(p.totalAmount) || 0),
+        claimableItc:
+          acc.claimableItc + (p.itcEligibility === "Ineligible" ? 0 : Number(p.totalTax) || 0),
+      };
+    },
+    { taxable: 0, tax: 0, amount: 0, claimableItc: 0 }
   );
 
   return (
@@ -41,7 +47,9 @@ export default function PurchaseInvoicesPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[#0b2641]">Purchase Bills</h1>
-          <p className="text-sm text-slate-500">Record supplier purchase bills, ITC eligibility & increase inventory stock</p>
+          <p className="text-sm text-slate-500">
+            Record supplier purchase bills, ITC eligibility &amp; increase inventory stock
+          </p>
         </div>
 
         <Link
@@ -53,65 +61,159 @@ export default function PurchaseInvoicesPage() {
         </Link>
       </div>
 
-      {/* Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
         <div className="relative w-full sm:w-96">
           <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
           <input
             type="text"
-            placeholder="Search supplier, bill no or purchase ID..."
+            placeholder="Search supplier, bill no, GSTIN or state..."
+            data-search="true"
+            aria-keyshortcuts="/"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>
 
-      {/* Purchases List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {loading ? (
-          <div className="col-span-full text-center py-12 text-slate-400">Loading purchase bills...</div>
-        ) : filtered.length === 0 ? (
-          <div className="col-span-full text-center py-12 text-slate-400">No purchase bills recorded.</div>
-        ) : (
-          filtered.map((p) => (
-            <div
-              key={p._id}
-              className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs hover:shadow-md transition-shadow space-y-4 flex flex-col justify-between"
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 text-slate-600 text-xs font-semibold uppercase tracking-wider border-b border-slate-200">
+                <th className="py-3 px-4">Purchase No</th>
+                <th className="py-3 px-4">Supplier Bill No</th>
+                <th className="py-3 px-4">Date</th>
+                <th className="py-3 px-4">Supplier</th>
+                <th className="py-3 px-4">GSTIN</th>
+                <th className="py-3 px-4">State</th>
+                <th className="py-3 px-4 text-center">Items</th>
+                <th className="py-3 px-4">ITC</th>
+                <th className="py-3 px-4 text-right">Taxable</th>
+                <th className="py-3 px-4 text-right">Tax</th>
+                <th className="py-3 px-4 text-right">Total</th>
+                <th className="py-3 px-4 text-center">Status</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm">
+              {loading ? (
+                <tr>
+                  <td colSpan={13} className="py-10 text-center text-slate-400">
+                    Loading purchase bills...
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={13} className="py-10 text-center text-slate-400">
+                    No purchase bills found.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((p) => {
+                  const isCancelled = p.status === "Cancelled";
+
+                  return (
+                    <tr
+                      key={p._id}
+                      className={`hover:bg-slate-50/80 transition-colors ${isCancelled ? "opacity-60" : ""}`}
+                    >
+                      <td className="py-3.5 px-4 font-mono text-xs font-bold text-[#0b2641]">
+                        {p.purchaseInvoiceNumber}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-xs text-slate-600">
+                        {p.supplierInvoiceNo || "—"}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{p.date}</td>
+                      <td className="py-3.5 px-4 font-medium text-slate-800">{p.supplierName}</td>
+                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500">
+                        {p.supplierGstin || "—"}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600 text-xs">{p.supplierState}</td>
+                      <td className="py-3.5 px-4 text-center text-slate-600">
+                        {p.items?.length ?? 0}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                            ITC_STYLES[p.itcEligibility] ?? "bg-slate-50 text-slate-600 border-slate-200"
+                          }`}
+                        >
+                          {p.itcEligibility}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right text-slate-600">
+                        {formatInr(p.totalTaxable)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right text-slate-600">
+                        {formatInr(p.totalTax)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-bold text-slate-900">
+                        {formatInr(p.totalAmount)}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                            isCancelled
+                              ? "bg-rose-100 text-rose-700"
+                              : "bg-emerald-100 text-emerald-800"
+                          }`}
+                        >
+                          {isCancelled ? (
+                            <>
+                              <XCircle className="w-3 h-3" /> Cancelled
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-3 h-3" /> Completed
+                            </>
+                          )}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <Link
+                          href={`/purchases/${p._id}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-md border border-blue-200 transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>View</span>
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+            {!loading && filtered.length > 0 && (
+              <tfoot>
+                <tr className="bg-slate-50 border-t-2 border-slate-200 text-sm font-bold text-slate-800">
+                  <td colSpan={8} className="py-3 px-4 text-xs uppercase tracking-wider text-slate-500">
+                    Totals for the {filtered.length} loaded row
+                    {filtered.length === 1 ? "" : "s"} — excludes cancelled · claimable ITC{" "}
+                    {formatInr(totals.claimableItc)}
+                    {hasMore ? " · load more for the full figure" : ""}
+                  </td>
+                  <td className="py-3 px-4 text-right">{formatInr(totals.taxable)}</td>
+                  <td className="py-3 px-4 text-right">{formatInr(totals.tax)}</td>
+                  <td className="py-3 px-4 text-right text-[#0b2641]">{formatInr(totals.amount)}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+
+        {(hasMore || loadingMore) && (
+          <div className="flex justify-center border-t border-slate-100 p-4">
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 text-xs font-semibold rounded-lg transition-colors"
             >
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-sm text-[#0b2641]">{p.purchaseInvoiceNumber}</span>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800">
-                    <Tag className="w-3 h-3" /> ITC: {p.itcEligibility}
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                    <User className="w-4 h-4 text-slate-400" />
-                    <span>{p.supplierName}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5" /> {p.date}
-                    </span>
-                    <span className="font-mono">Bill No: {p.supplierInvoiceNo}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] text-slate-400 uppercase font-semibold">Total Amount</p>
-                  <p className="text-lg font-bold text-slate-900">₹{p.totalAmount?.toLocaleString("en-IN")}</p>
-                </div>
-                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded border border-emerald-200">
-                  Stock Added
-                </span>
-              </div>
-            </div>
-          ))
+              {loadingMore ? "Loading..." : "Load more purchase bills"}
+            </button>
+          </div>
         )}
       </div>
     </div>

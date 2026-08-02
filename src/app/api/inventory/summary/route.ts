@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/company-context";
 import { connectToDatabase } from "@/lib/mongodb";
 import { ItemModel } from "@/lib/models";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     await connectToDatabase();
-    const items = await ItemModel.find({ type: "Product" });
+    const ctx = await requirePermission(req, "inventory", "view");
+    if (!ctx.ok) return ctx.response;
+    const { companyId } = ctx.context;
+    const items = await ItemModel.find({ companyId, type: "Product" });
 
     const totalItemsCount = items.length;
     let lowStockItemsCount = 0;

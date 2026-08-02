@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/company-context";
 import { connectToDatabase } from "@/lib/mongodb";
 import { StockTransferModel, ItemModel, StockLedgerModel } from "@/lib/models";
 import { getNextCounterValue } from "@/lib/utils/counter-utils";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     await connectToDatabase();
-    const transfers = await StockTransferModel.find().sort({ createdAt: -1 });
+    const ctx = await requirePermission(req, "inventory", "view");
+    if (!ctx.ok) return ctx.response;
+    const { companyId } = ctx.context;
+    const transfers = await StockTransferModel.find({ companyId }).sort({ createdAt: -1 });
     return NextResponse.json(transfers);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -16,21 +20,25 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     await connectToDatabase();
+    const ctx = await requirePermission(req, "inventory", "manage");
+    if (!ctx.ok) return ctx.response;
+    const { companyId } = ctx.context;
     const body = await req.json();
 
     let transferNo = body.transferNo;
     if (!transferNo) {
-      transferNo = await getNextCounterValue("stock-transfer", "TRN");
+      transferNo = await getNextCounterValue(companyId, "stock-transfer", "TRN");
     }
 
     const transfer = await StockTransferModel.create({
       ...body,
+      companyId,
       transferNo,
       status: "Completed",
     });
 
     for (const item of body.items) {
-      const dbItem = await ItemModel.findById(item.itemId);
+      const dbItem = await ItemModel.findOne({ _id: item.itemId, companyId });
       if (dbItem && dbItem.type === "Product") {
         // Transfer out from Source Godown
         await StockLedgerModel.create({

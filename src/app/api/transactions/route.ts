@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/company-context";
 import { connectToDatabase } from "@/lib/mongodb";
 import {
   InvoiceModel,
@@ -9,17 +10,20 @@ import {
   StockTransferModel,
 } from "@/lib/models";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     await connectToDatabase();
+    const ctx = await requirePermission(req, "reports", "view");
+    if (!ctx.ok) return ctx.response;
+    const { companyId } = ctx.context;
 
     const [invoices, purchases, creditNotes, debitNotes, adjustments, transfers] = await Promise.all([
-      InvoiceModel.find().lean(),
-      PurchaseInvoiceModel.find().lean(),
-      CreditNoteModel.find().lean(),
-      DebitNoteModel.find().lean(),
-      StockAdjustmentModel.find().lean(),
-      StockTransferModel.find().lean(),
+      InvoiceModel.find({ companyId }).lean(),
+      PurchaseInvoiceModel.find({ companyId }).lean(),
+      CreditNoteModel.find({ companyId }).lean(),
+      DebitNoteModel.find({ companyId }).lean(),
+      StockAdjustmentModel.find({ companyId }).lean(),
+      StockTransferModel.find({ companyId }).lean(),
     ]);
 
     const transactions = [

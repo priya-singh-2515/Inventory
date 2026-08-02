@@ -9,6 +9,7 @@ import toast from "react-hot-toast";
 import { InvoiceItem } from "@/lib/types/invoice";
 import { ItemMaster } from "@/lib/types/inventory";
 import { INDIAN_STATES, ITC_ELIGIBILITY_OPTIONS } from "@/lib/constants";
+import { UnitSelect } from "@/components/forms/UnitSelect";
 
 interface PurchaseBillFormInput {
   supplierInvoiceNo: string;
@@ -52,10 +53,10 @@ export default function CreatePurchaseBillPage() {
   useEffect(() => {
     async function loadMasterItems() {
       try {
-        const res = await fetch("/api/items");
+        const res = await fetch("/api/items?all=true");
         if (res.ok) {
-          const data = await res.json();
-          setAvailableItems(data);
+          const payload = await res.json();
+          setAvailableItems(payload.data ?? payload);
         }
       } catch (e) {
         console.error(e);
@@ -336,10 +337,10 @@ export default function CreatePurchaseBillPage() {
                         />
                       </td>
                       <td className="py-2.5 px-3">
-                        <input
-                          type="text"
+                        <UnitSelect
                           value={item.unit}
-                          onChange={(e) => handleItemChange(idx, "unit", e.target.value)}
+                          onChange={(unit) => handleItemChange(idx, "unit", unit)}
+                          aria-label={`Unit for ${item.name || `line ${idx + 1}`}`}
                           className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-xs"
                         />
                       </td>

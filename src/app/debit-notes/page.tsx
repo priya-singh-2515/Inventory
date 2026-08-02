@@ -6,6 +6,9 @@ import { ArrowLeft, Plus, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { ItemMaster } from "@/lib/types/inventory";
+import { PurchaseInvoice } from "@/lib/types/invoice";
+import { formatInr } from "@/lib/utils/invoice-format";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 
 interface DebitNoteRecord {
   _id: string;
@@ -36,7 +39,13 @@ export default function DebitNotesPage() {
   const [debitNotes, setDebitNotes] = useState<DebitNoteRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const dialogRef = useDialogA11y({
+    isOpen: showModal,
+    onClose: () => setShowModal(false),
+  });
   const [itemsMaster, setItemsMaster] = useState<ItemMaster[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseInvoice[]>([]);
+  const [sourcePurchase, setSourcePurchase] = useState<PurchaseInvoice | null>(null);
 
   const {
     register,
@@ -62,8 +71,8 @@ export default function DebitNotesPage() {
     try {
       const res = await fetch("/api/debit-notes");
       if (res.ok) {
-        const data = await res.json();
-        setDebitNotes(data);
+        const payload = await res.json();
+        setDebitNotes(payload.data ?? payload);
       }
     } catch {
       toast.error("Failed to load debit notes");
@@ -74,10 +83,25 @@ export default function DebitNotesPage() {
 
   async function loadItems() {
     try {
-      const res = await fetch("/api/items");
+      const res = await fetch("/api/items?all=true");
       if (res.ok) {
-        const data = await res.json();
-        setItemsMaster(data);
+        const payload = await res.json();
+        setItemsMaster(payload.data ?? payload);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function loadPurchases() {
+    try {
+      const res = await fetch("/api/purchases");
+      if (res.ok) {
+        const payload = await res.json();
+        const data: PurchaseInvoice[] = payload.data ?? payload;
+        // A cancelled bill has already had its stock reverted — returning
+        // against it would double-count.
+        setPurchases(data.filter((p) => p.status !== "Cancelled"));
       }
     } catch (e) {
       console.error(e);
@@ -87,7 +111,43 @@ export default function DebitNotesPage() {
   useEffect(() => {
     loadDebitNotes();
     loadItems();
+    loadPurchases();
   }, []);
+
+  /** Picking the original bill fills in the supplier and scopes the items. */
+  function handleSelectPurchase(purchaseId: string) {
+    const found = purchases.find((p) => p._id === purchaseId) ?? null;
+    setSourcePurchase(found);
+
+    setValue("selectedItemName", "");
+    setValue("returnQty", 1);
+    setValue("returnRate", 0);
+
+    if (!found) {
+      setValue("purchaseInvoiceNumber", "");
+      return;
+    }
+
+    setValue("purchaseInvoiceNumber", found.supplierInvoiceNo || found.purchaseInvoiceNumber);
+    setValue("partyName", found.supplierName);
+    setValue("partyAddress", found.supplierAddress ?? "");
+    setValue("partyState", found.supplierState ?? "Maharashtra");
+  }
+
+  /** Lines available to return: the bill's own lines, else the full master. */
+  const returnableItems = sourcePurchase
+    ? (sourcePurchase.items ?? []).map((line) => ({
+        name: line.name,
+        detail: `${line.qty} ${line.unit} @ ${formatInr(line.rate)}`,
+        qty: line.qty,
+        rate: line.rate,
+      }))
+    : itemsMaster.map((item) => ({
+        name: item.name,
+        detail: `Stock: ${item.stock} ${item.unit}`,
+        qty: 1,
+        rate: item.purchaseRate || item.sellingRate,
+      }));
 
   async function onSubmit(data: DebitNoteFormInput) {
     if (!data.selectedItemName) {
@@ -219,15 +279,44 @@ export default function DebitNotesPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="debit-note-dialog-title"
+            className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4"
+          >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-[#0b2641] text-lg">Issue Purchase Return Debit Note</h3>
+              <h3 id="debit-note-dialog-title" className="font-bold text-[#0b2641] text-lg">Issue Purchase Return Debit Note</h3>
               <button onClick={() => setShowModal(false)} className="p-1 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Original Purchase Bill
+                </label>
+                <select
+                  value={sourcePurchase?._id ?? ""}
+                  onChange={(e) => handleSelectPurchase(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold"
+                >
+                  <option value="">— Not linked (enter details manually) —</option>
+                  {purchases.map((p) => (
+                    <option key={p._id} value={p._id}>
+                      {p.purchaseInvoiceNumber} · {p.supplierName} · {formatInr(p.totalAmount)} · {p.date}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {sourcePurchase
+                    ? "Supplier details filled from the bill; only its line items can be returned."
+                    : "Pick a bill to auto-fill the supplier and restrict the returnable items."}
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Return Date *</label>
@@ -243,8 +332,11 @@ export default function DebitNotesPage() {
                   <input
                     type="text"
                     placeholder="e.g. BILL-9876"
+                    readOnly={Boolean(sourcePurchase)}
                     {...register("purchaseInvoiceNumber")}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono"
+                    className={`w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono ${
+                      sourcePurchase ? "bg-slate-100 text-slate-500" : "bg-slate-50"
+                    }`}
                   />
                 </div>
               </div>
@@ -276,16 +368,19 @@ export default function DebitNotesPage() {
                   {...register("selectedItemName", {
                     required: "Product item is required",
                     onChange: (e) => {
-                      const found = itemsMaster.find((i) => i.name === e.target.value);
-                      if (found) setValue("returnRate", found.purchaseRate || found.sellingRate);
+                      const line = returnableItems.find((i) => i.name === e.target.value);
+                      if (line) {
+                        setValue("returnRate", line.rate);
+                        setValue("returnQty", line.qty);
+                      }
                     },
                   })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold"
                 >
                   <option value="">Select Item Returned</option>
-                  {itemsMaster.map((i) => (
-                    <option key={i._id} value={i.name}>
-                      {i.name} (Stock: {i.stock} {i.unit})
+                  {returnableItems.map((line) => (
+                    <option key={line.name} value={line.name}>
+                      {line.name} ({line.detail})
                     </option>
                   ))}
                 </select>

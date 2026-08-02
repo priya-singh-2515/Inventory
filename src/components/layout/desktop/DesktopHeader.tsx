@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Plus, ShoppingBag, Package, LogOut } from "lucide-react";
 import { signOut, useSession } from "@/lib/auth-client";
+import { CompanySwitcher } from "@/components/layout/CompanySwitcher";
 
 export function DesktopHeader() {
   const router = useRouter();
@@ -84,7 +85,11 @@ export function DesktopHeader() {
           <span>New Sales Invoice</span>
         </Link>
 
-        <div className="flex items-center gap-3 pl-4 ml-1 border-l border-slate-200">
+        <div className="pl-4 ml-1 border-l border-slate-200">
+          <CompanySwitcher />
+        </div>
+
+        <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
           <div className="text-right leading-tight">
             <p className="text-xs font-semibold text-slate-700">{session?.user?.name ?? "Account"}</p>
             <p className="text-[11px] text-slate-400">{session?.user?.email}</p>

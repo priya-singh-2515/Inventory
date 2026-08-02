@@ -24,6 +24,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone maintenance scripts run under plain node, not through the
+    // Next.js bundler, so the app's module rules do not apply to them.
+    "scripts/**",
   ]),
 ]);
 

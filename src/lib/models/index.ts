@@ -17,6 +17,7 @@ import {
   Batch,
 } from "@/lib/types/common";
 import { CompanyDetails } from "@/lib/types/settings";
+import type { Role } from "@/lib/permissions";
 
 // Helper to prevent overwriting models in Next.js HMR.
 // Note: the non-generic `mongoose.model(...)` overload is used deliberately.
@@ -55,7 +56,8 @@ const InvoiceItemSchema = new Schema({
 // 2. Invoice Schema (sales-invoices)
 const InvoiceSchema = new Schema(
   {
-    invoiceNumber: { type: String, required: true, unique: true },
+    companyId: { type: String, required: true, index: true },
+    invoiceNumber: { type: String, required: true },
     date: { type: String, required: true },
     gstin: { type: String },
     partyName: { type: String, required: true },
@@ -109,7 +111,8 @@ const InvoiceSchema = new Schema(
 // 3. PurchaseInvoice Schema (purchase-invoices)
 const PurchaseInvoiceSchema = new Schema(
   {
-    purchaseInvoiceNumber: { type: String, required: true, unique: true },
+    companyId: { type: String, required: true, index: true },
+    purchaseInvoiceNumber: { type: String, required: true },
     supplierInvoiceNo: { type: String, required: true },
     date: { type: String, required: true },
     supplierName: { type: String, required: true },
@@ -133,6 +136,7 @@ const PurchaseInvoiceSchema = new Schema(
 // 4. StockLedger Schema (stock-ledgers)
 const StockLedgerSchema = new Schema(
   {
+    companyId: { type: String, required: true, index: true },
     date: { type: Date, required: true, default: Date.now },
     itemId: { type: Schema.Types.ObjectId, ref: "Item", required: true },
     itemName: { type: String, required: true },
@@ -165,7 +169,8 @@ const StockLedgerSchema = new Schema(
 // 5. StockAdjustment Schema (stock-adjustments)
 const StockAdjustmentSchema = new Schema(
   {
-    adjustmentNo: { type: String, required: true, unique: true },
+    companyId: { type: String, required: true, index: true },
+    adjustmentNo: { type: String, required: true },
     date: { type: String, required: true },
     type: { type: String, enum: ["Stock In", "Stock Out"], required: true },
     reason: {
@@ -201,7 +206,8 @@ const StockAdjustmentSchema = new Schema(
 // 6. StockTransfer Schema (stock-transfers)
 const StockTransferSchema = new Schema(
   {
-    transferNo: { type: String, required: true, unique: true },
+    companyId: { type: String, required: true, index: true },
+    transferNo: { type: String, required: true },
     date: { type: String, required: true },
     sourceGodown: { type: String, required: true },
     destinationGodown: { type: String, required: true },
@@ -223,6 +229,7 @@ const StockTransferSchema = new Schema(
 // 7. Party Schema (sales-parties)
 const PartySchema = new Schema(
   {
+    companyId: { type: String, required: true, index: true },
     name: { type: String, required: true },
     gstin: { type: String },
     address: { type: String, required: true },
@@ -244,6 +251,7 @@ const PartySchema = new Schema(
 // 8. Item / Product Master Schema (sales-items)
 const ItemSchema = new Schema(
   {
+    companyId: { type: String, required: true, index: true },
     name: { type: String, required: true },
     type: { type: String, enum: ["Product", "Service"], required: true, default: "Product" },
     sku: { type: String },
@@ -273,6 +281,7 @@ const ItemSchema = new Schema(
 // 9. Company Schema (companyDetails)
 const CompanySchema = new Schema(
   {
+    ownerId: { type: String, required: true, index: true },
     gstin: { type: String, required: true },
     legalName: { type: String, required: true },
     tradeName: { type: String, required: true },
@@ -296,6 +305,7 @@ const CompanySchema = new Schema(
 // 10. CreditNote Schema (credit-notes)
 const CreditNoteSchema = new Schema(
   {
+    companyId: { type: String, required: true, index: true },
     creditNoteNo: { type: String, required: true, unique: true },
     invoiceNumber: { type: String },
     date: { type: String, required: true },
@@ -316,6 +326,7 @@ const CreditNoteSchema = new Schema(
 // 11. DebitNote Schema (debit-notes)
 const DebitNoteSchema = new Schema(
   {
+    companyId: { type: String, required: true, index: true },
     debitNoteNo: { type: String, required: true, unique: true },
     purchaseInvoiceNumber: { type: String },
     date: { type: String, required: true },
@@ -336,6 +347,7 @@ const DebitNoteSchema = new Schema(
 // 12. DeliveryChallan Schema (delivery-challans)
 const DeliveryChallanSchema = new Schema(
   {
+    companyId: { type: String, required: true, index: true },
     challanNumber: { type: String, required: true, unique: true },
     date: { type: String, required: true },
     partyName: { type: String, required: true },
@@ -349,6 +361,7 @@ const DeliveryChallanSchema = new Schema(
 // 13. Journal Schema (journal-entries)
 const JournalSchema = new Schema(
   {
+    companyId: { type: String, required: true, index: true },
     date: { type: String, required: true },
     voucherNumber: { type: String, required: true, unique: true },
     narration: { type: String },
@@ -360,6 +373,7 @@ const JournalSchema = new Schema(
 // 14. Payment & Receipt Schemas
 const VoucherSchema = new Schema(
   {
+    companyId: { type: String, required: true, index: true },
     date: { type: String, required: true },
     voucherNumber: { type: String, required: true },
     party: { type: String, required: true },
@@ -371,44 +385,149 @@ const VoucherSchema = new Schema(
 );
 
 // 15. Transporter, Godown, Batch, Counter
-const TransporterSchema = new Schema({ name: { type: String, required: true }, gstin: String });
-const GodownSchema = new Schema({ name: { type: String, required: true }, address: String });
-const BatchSchema = new Schema({ name: { type: String, required: true }, expiryDate: String });
-const CounterSchema = new Schema({ name: { type: String, required: true, unique: true }, value: { type: Number, default: 0 } });
+const TransporterSchema = new Schema({ companyId: { type: String, required: true, index: true }, name: { type: String, required: true }, gstin: String });
+const GodownSchema = new Schema({ companyId: { type: String, required: true, index: true }, name: { type: String, required: true }, address: String });
+const BatchSchema = new Schema({ companyId: { type: String, required: true, index: true }, name: { type: String, required: true }, expiryDate: String });
+const CounterSchema = new Schema({
+  companyId: { type: String, required: true, index: true },
+  name: { type: String, required: true },
+  value: { type: Number, default: 0 },
+});
+// Numbering is per company: INV-001 in one company is independent of the next.
+// 16. Team access: who may act inside a company, and pending invitations.
+const CompanyMemberSchema = new Schema(
+  {
+    companyId: { type: String, required: true, index: true },
+    userId: { type: String, required: true, index: true },
+    email: { type: String, required: true },
+    name: { type: String },
+    role: {
+      type: String,
+      enum: ["owner", "admin", "manager", "accountant", "viewer"],
+      required: true,
+    },
+    invitedBy: { type: String },
+  },
+  { timestamps: true }
+);
+// One membership per person per company.
+CompanyMemberSchema.index({ companyId: 1, userId: 1 }, { unique: true });
+
+const CompanyInviteSchema = new Schema(
+  {
+    companyId: { type: String, required: true, index: true },
+    email: { type: String, required: true, lowercase: true, trim: true },
+    role: {
+      type: String,
+      enum: ["admin", "manager", "accountant", "viewer"],
+      required: true,
+    },
+    // Random, single-use, and the only thing that proves the invite is genuine.
+    token: { type: String, required: true, unique: true, index: true },
+    invitedBy: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+    acceptedAt: { type: Date },
+    acceptedBy: { type: String },
+    revokedAt: { type: Date },
+  },
+  { timestamps: true }
+);
+
+CounterSchema.index({ companyId: 1, name: 1 }, { unique: true });
+
+// Keyset-pagination indexes: (companyId, _id desc) lets the newest-first list
+// seek straight to a cursor instead of scanning. Without these the pagination
+// helper still returns correct pages, just not quickly.
+InvoiceSchema.index({ companyId: 1, _id: -1 });
+PurchaseInvoiceSchema.index({ companyId: 1, _id: -1 });
+CreditNoteSchema.index({ companyId: 1, _id: -1 });
+DebitNoteSchema.index({ companyId: 1, _id: -1 });
+StockLedgerSchema.index({ companyId: 1, _id: -1 });
+// The per-item ledger view filters by item before ordering.
+StockLedgerSchema.index({ companyId: 1, itemId: 1, _id: -1 });
+// Items page by name, and the search matches on a name prefix.
+ItemSchema.index({ companyId: 1, name: 1 });
+// Prefix search targets on the document lists.
+InvoiceSchema.index({ companyId: 1, partyName: 1 });
+PurchaseInvoiceSchema.index({ companyId: 1, supplierName: 1 });
+
+InvoiceSchema.index({ companyId: 1, invoiceNumber: 1 }, { unique: true });
+PurchaseInvoiceSchema.index({ companyId: 1, purchaseInvoiceNumber: 1 }, { unique: true });
+StockAdjustmentSchema.index({ companyId: 1, adjustmentNo: 1 }, { unique: true });
+StockTransferSchema.index({ companyId: 1, transferNo: 1 }, { unique: true });
 
 // Document shapes. `_id` is omitted from the domain interfaces because Mongoose
 // supplies it as an ObjectId on the hydrated document; keeping the interface's
 // optional `string` version would intersect to `never`.
 type Doc<T> = Omit<T, "_id">;
 
+/**
+ * Every business document carries the company it belongs to. The domain
+ * interfaces in lib/types describe the shape the client sees and deliberately
+ * omit it, so it is layered on here at the persistence boundary.
+ */
+type Tenanted<T> = Doc<T> & { companyId: string };
+
 interface Counter {
+  companyId: string;
   name: string;
   value: number;
+}
+
+interface CompanyMemberDoc {
+  companyId: string;
+  userId: string;
+  email: string;
+  name?: string;
+  role: Role;
+  invitedBy?: string;
+  createdAt?: Date;
+}
+
+interface CompanyInviteDoc {
+  companyId: string;
+  email: string;
+  role: Role;
+  token: string;
+  invitedBy: string;
+  expiresAt: Date;
+  acceptedAt?: Date;
+  acceptedBy?: string;
+  revokedAt?: Date;
+  createdAt?: Date;
 }
 
 // StockLedgerEntry describes the JSON-serialized shape the client receives,
 // where `date` and `itemId` arrive as strings. The stored document uses the
 // native Date/ObjectId types declared in StockLedgerSchema.
-type StockLedgerDoc = Omit<Doc<StockLedgerEntry>, "date" | "itemId"> & {
+type StockLedgerDoc = Omit<Tenanted<StockLedgerEntry>, "date" | "itemId"> & {
   date: Date;
   itemId: mongoose.Types.ObjectId;
 };
 
-export const InvoiceModel = getOrCreateModel<Doc<Invoice>>("Invoice", InvoiceSchema);
-export const PurchaseInvoiceModel = getOrCreateModel<Doc<PurchaseInvoice>>("PurchaseInvoice", PurchaseInvoiceSchema);
+export const InvoiceModel = getOrCreateModel<Tenanted<Invoice>>("Invoice", InvoiceSchema);
+export const PurchaseInvoiceModel = getOrCreateModel<Tenanted<PurchaseInvoice>>("PurchaseInvoice", PurchaseInvoiceSchema);
 export const StockLedgerModel = getOrCreateModel<StockLedgerDoc>("StockLedger", StockLedgerSchema);
-export const StockAdjustmentModel = getOrCreateModel<Doc<StockAdjustment>>("StockAdjustment", StockAdjustmentSchema);
-export const StockTransferModel = getOrCreateModel<Doc<StockTransfer>>("StockTransfer", StockTransferSchema);
-export const PartyModel = getOrCreateModel<Doc<Party>>("Party", PartySchema);
-export const ItemModel = getOrCreateModel<Doc<ItemMaster>>("Item", ItemSchema);
-export const CompanyModel = getOrCreateModel<Doc<CompanyDetails>>("Company", CompanySchema);
-export const CreditNoteModel = getOrCreateModel<Doc<CreditNote>>("CreditNote", CreditNoteSchema);
-export const DebitNoteModel = getOrCreateModel<Doc<DebitNote>>("DebitNote", DebitNoteSchema);
-export const DeliveryChallanModel = getOrCreateModel("DeliveryChallan", DeliveryChallanSchema);
-export const JournalModel = getOrCreateModel<Doc<JournalEntry>>("Journal", JournalSchema);
-export const PaymentModel = getOrCreateModel<Doc<Voucher>>("Payment", VoucherSchema);
-export const ReceiptModel = getOrCreateModel<Doc<Voucher>>("Receipt", VoucherSchema);
-export const TransporterModel = getOrCreateModel<Doc<Transporter>>("Transporter", TransporterSchema);
-export const GodownModel = getOrCreateModel<Doc<Godown>>("Godown", GodownSchema);
-export const BatchModel = getOrCreateModel<Doc<Batch>>("Batch", BatchSchema);
+export const StockAdjustmentModel = getOrCreateModel<Tenanted<StockAdjustment>>("StockAdjustment", StockAdjustmentSchema);
+export const StockTransferModel = getOrCreateModel<Tenanted<StockTransfer>>("StockTransfer", StockTransferSchema);
+export const PartyModel = getOrCreateModel<Tenanted<Party>>("Party", PartySchema);
+export const ItemModel = getOrCreateModel<Tenanted<ItemMaster>>("Item", ItemSchema);
+export const CompanyModel = getOrCreateModel<Doc<CompanyDetails> & { ownerId: string }>(
+  "Company",
+  CompanySchema
+);
+export const CreditNoteModel = getOrCreateModel<Tenanted<CreditNote>>("CreditNote", CreditNoteSchema);
+export const DebitNoteModel = getOrCreateModel<Tenanted<DebitNote>>("DebitNote", DebitNoteSchema);
+export const DeliveryChallanModel = getOrCreateModel<{ companyId: string }>(
+  "DeliveryChallan",
+  DeliveryChallanSchema
+);
+export const JournalModel = getOrCreateModel<Tenanted<JournalEntry>>("Journal", JournalSchema);
+export const PaymentModel = getOrCreateModel<Tenanted<Voucher>>("Payment", VoucherSchema);
+export const ReceiptModel = getOrCreateModel<Tenanted<Voucher>>("Receipt", VoucherSchema);
+export const TransporterModel = getOrCreateModel<Tenanted<Transporter>>("Transporter", TransporterSchema);
+export const GodownModel = getOrCreateModel<Tenanted<Godown>>("Godown", GodownSchema);
+export const BatchModel = getOrCreateModel<Tenanted<Batch>>("Batch", BatchSchema);
 export const CounterModel = getOrCreateModel<Counter>("Counter", CounterSchema);
+export const CompanyMemberModel = getOrCreateModel<CompanyMemberDoc>("CompanyMember", CompanyMemberSchema);
+export const CompanyInviteModel = getOrCreateModel<CompanyInviteDoc>("CompanyInvite", CompanyInviteSchema);

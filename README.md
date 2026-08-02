@@ -4,6 +4,10 @@ A GST-compliant billing and stock management application for Indian businesses. 
 invoicing, purchase bills, multi-godown inventory, credit/debit notes, and a full immutable stock
 ledger.
 
+Multi-company: one account can keep the books for several businesses, each with its own document
+numbering, its own team, and its own export file. Access is role-based, from full owner down to a
+read-only guest.
+
 Built with Next.js 16 (App Router), MongoDB via Mongoose, and TypeScript.
 
 ---
@@ -14,12 +18,18 @@ Built with Next.js 16 (App Router), MongoDB via Mongoose, and TypeScript.
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
 - [Authentication](#authentication)
+- [Companies & Tenancy](#companies--tenancy)
+- [Roles & Permissions](#roles--permissions)
+- [Invitations & Guest Access](#invitations--guest-access)
+- [Export & Import](#export--import)
+- [Scale: Pagination & Search](#scale-pagination--search)
 - [Directory Layout](#directory-layout)
 - [Data Model](#data-model)
 - [Core Business Flows](#core-business-flows)
 - [The Stock Engine](#the-stock-engine)
 - [The GST Tax Engine](#the-gst-tax-engine)
 - [Document Numbering](#document-numbering)
+- [Invoice Output: Print & PDF](#invoice-output-print--pdf)
 - [API Reference](#api-reference)
 - [Application Routes](#application-routes)
 - [Validation](#validation)
@@ -62,11 +72,22 @@ npm run dev
 ```
 
 Open <http://localhost:3000>. You'll be redirected to `/login` — create an account at `/signup`
-first.
+first, then create your first company. A company has to exist before any business screen works: it
+supplies the home state the GST engine compares against, and it is the tenancy key every document is
+filed under.
 
-No seed step is required. On the first call to `GET /api/company`, a default company profile is
-created automatically so the tax engine has a home state to compare against. Edit it under
-**Settings** before issuing real documents.
+### Upgrading an existing database
+
+If you have data from before multi-company, run the migration once. It stamps every document with a
+`companyId`, makes the existing user the owner, and replaces the old globally-unique document-number
+indexes with per-company ones.
+
+```bash
+node scripts/migrate-multi-company.mjs
+```
+
+It reports without changing anything. Re-run with `--apply` to migrate, then restart the dev server
+so Mongoose rebuilds its indexes. The script is idempotent — each step skips work already done.
 
 > **`MONGODB_TRANSACTIONS`**: a standalone `mongod` rejects transactions outright
 > (`Transaction numbers are only allowed on a replica set member or mongos`), which breaks sign-up.
@@ -99,7 +120,7 @@ created automatically so the tax engine has a home state to compare against. Edi
 | Database | MongoDB + Mongoose 9 |
 | Validation | Zod 3 |
 | Charts | Recharts |
-| PDF export | jsPDF + html2canvas |
+| PDF export | jsPDF (vector text, no rasterisation) |
 | Notifications | react-hot-toast |
 | Icons | lucide-react |
 
@@ -115,6 +136,11 @@ flowchart TD
     subgraph Client["Client — React Server/Client Components"]
         Pages["Pages under src/app/*"]
         Forms["React Hook Form + Zod resolvers"]
+    end
+
+    subgraph Gate["Request Gate"]
+        Proxy["proxy.ts<br/>session required"]
+        Ctx["company-context<br/>tenant + role + permission"]
     end
 
     subgraph API["Route Handlers — src/app/api/*"]
@@ -133,7 +159,9 @@ flowchart TD
     end
 
     Pages --> Forms
-    Forms -->|fetch| Routes
+    Forms -->|fetch| Proxy
+    Proxy --> Ctx
+    Ctx -->|"companyId + role"| Routes
     Routes --> Calc
     Routes --> Stock
     Routes --> Counter
@@ -155,6 +183,12 @@ flowchart TD
 4. **The connection is cached on `globalThis`.** `src/lib/mongodb.ts` memoises the Mongoose
    connection so Next.js hot reloads and serverless invocations reuse one pool instead of leaking
    connections.
+5. **No handler reaches the database without a tenant and a permission.** Business routes call
+   `requirePermission(req, feature, action)`, which resolves the active company, re-checks
+   membership, and enforces the role — there is no code path that yields a `companyId` without
+   having stated what it needs it for.
+6. **Lists are paginated at the source.** Endpoints return a cursor envelope rather than a
+   collection, so response size is bounded regardless of how much data a company holds.
 
 ---
 
@@ -205,9 +239,14 @@ Three things worth knowing:
 3. **API routes get a 401, pages get a redirect.** The matcher excludes `/api/auth/*` so sign-in and
    sign-up stay reachable while signed out.
 
-Because the gate covers every route in one place, individual API handlers do not repeat the session
-check. That is a deliberate trade-off: it keeps the 18 route handlers untouched, but it does mean
-the gate is the single point of failure — narrowing the matcher would silently expose routes.
+The gate covers session validity in one place; **authorisation is separate and lives in every
+handler** via `requirePermission` (see [Roles & Permissions](#roles--permissions)). Narrowing the
+proxy matcher would expose routes to unauthenticated callers, but it would not bypass the tenant or
+role checks.
+
+`/invite/*` and `/api/invites/*` are the only routes open either way: an invitee must be able to read
+what they were offered before signing in, and an already-signed-in user must be able to accept
+rather than being bounced to the dashboard.
 
 ### CSRF
 
@@ -215,6 +254,202 @@ Better Auth rejects cross-origin state-changing requests with `403 MISSING_OR_NU
 a sign-out sent with `Origin: https://evil.example` and a valid session cookie is refused and the
 session survives. Requests with no `Origin` header at all are also refused — which is why `curl`
 testing of these endpoints needs `-H "Origin: http://localhost:3000"`.
+
+
+---
+
+## Companies & Tenancy
+
+Every business document carries a `companyId`, and every query filters on it. One account can hold
+several companies; each keeps its own items, parties, documents, numbering and team.
+
+### How the active company is resolved
+
+[`src/lib/company-context.ts`](src/lib/company-context.ts) runs on every business request:
+
+```mermaid
+flowchart TD
+    Req[Request] --> Sess{Valid session?}
+    Sess -->|no| E401[401]
+    Sess -->|yes| Cookie["read activeCompanyId cookie"]
+    Cookie --> Member{"membership row for<br/>(cookie company, user)?"}
+    Member -->|yes| Use[Use it]
+    Member -->|no| Fallback["fall back to the user's<br/>earliest membership"]
+    Fallback --> Any{Any membership?}
+    Any -->|no| E409["409 NO_COMPANY<br/>create one first"]
+    Any -->|yes| Use
+    Use --> Perm{"role allows<br/>this feature + action?"}
+    Perm -->|no| E403[403]
+    Perm -->|yes| Handler["handler runs, scoped to companyId"]
+```
+
+**The cookie selects; membership authorises.** The cookie is only a hint about which company you
+meant — it grants nothing. Membership is re-read from the database on every request, so revoking
+someone takes effect immediately, and editing the cookie to another company's id simply falls back
+to your own. Verified: a guest sending a forged `activeCompanyId` for a company they do not belong to
+resolved back to their own company.
+
+### Per-company document numbering
+
+Counters are keyed on `(companyId, name)`, so each company runs its own `INV-001`, `PUR-001` series
+rather than sharing one global run. The unique indexes on `invoiceNumber`, `purchaseInvoiceNumber`,
+`adjustmentNo` and `transferNo` are compound with `companyId` for the same reason — a global unique
+index would reject the second company's `INV-001`.
+
+---
+
+## Roles & Permissions
+
+Five roles, defined once in [`src/lib/permissions.ts`](src/lib/permissions.ts) as a feature × access
+matrix. The API and the UI read the same table, so the interface can never offer an action the
+server will reject.
+
+| Feature | Owner | Admin | Manager | Accountant | Guest (viewer) |
+|---|---|---|---|---|---|
+| Sales | manage | manage | manage | view | view |
+| Purchases | manage | manage | manage | view | view |
+| Inventory | manage | manage | manage | view | view |
+| Credit / debit notes | manage | manage | manage | view | view |
+| Masters (parties, godowns, batches) | manage | manage | manage | view | view |
+| Reports | manage | manage | view | view | view |
+| Company settings | manage | manage | — | view | — |
+| Team & invites | manage | manage | — | — | — |
+| Data export / import | manage | manage | — | view (export only) | — |
+
+`none` hides the area, `view` is read-only, `manage` is read + write.
+
+### Enforcement
+
+```ts
+const ctx = await requirePermission(req, "sales", "manage");
+if (!ctx.ok) return ctx.response;
+const { companyId } = ctx.context;
+```
+
+Used in all 22 permission-guarded routes. There is deliberately no way to obtain a context without naming the
+feature and action, so forgetting the check is not possible — the `companyId` only comes out of a
+call that already enforced it.
+
+The client mirror is [`useCompanySession`](src/hooks/useCompanySession.ts) (`canView`, `canManage`),
+used to hide actions. That is presentation only; the server re-checks regardless.
+
+Owner is not assignable by invite — it is established by creating or importing a company. The owner
+cannot be demoted or removed, and nobody can change their own role, so a company can never be left
+without an administrator.
+
+---
+
+## Invitations & Guest Access
+
+`/settings/team` invites by email at a chosen role.
+
+- The token is 32 random bytes, single-use, and expires in 14 days.
+- **There is no mail transport configured** — the invite link is copied to your clipboard to send
+  yourself. That is the one manual step in the flow.
+- Re-inviting the same address revokes the previous pending invite, so an old link cannot still be
+  redeemed at the old role.
+- Accepting requires a signed-in session **whose email matches the invite**. A forwarded link opened
+  by a different account is refused with `EMAIL_MISMATCH`.
+- Accepting sets the active company, so the invitee lands straight in the right books.
+
+### Guest view mode
+
+The `viewer` role is read-only everywhere and cannot export. A standing banner
+([`ReadOnlyBanner`](src/components/layout/ReadOnlyBanner.tsx)) explains why the write actions are
+absent — without it a guest just finds buttons missing and assumes the app is broken.
+
+Verified end to end: a guest reads invoices and items (200) but is refused on creating an invoice,
+creating an item, company settings, the team list, and export — all 403.
+
+---
+
+## Export & Import
+
+**Export** (`GET /api/companies/export`) serialises the active company and every document belonging
+to it into one JSON file, named after the company and date.
+
+**Import** (`POST /api/companies/import`) always creates a **new** company owned by the importer.
+Nothing existing is ever modified, so a wrong file costs a deletion rather than a data loss. On the
+way in, original `_id`s are dropped, every row is re-stamped with the new `companyId`, and item
+references in ledger rows and document lines are remapped to the newly inserted items.
+
+Collections travel in dependency order (items and parties before the documents that reference them),
+and the file is rejected unless its `format` and `version` match — see
+[`company-data-service.ts`](src/lib/services/company-data-service.ts).
+
+Use it to move books between installations, or to take a point-in-time copy before a risky change.
+
+---
+
+## Scale: Pagination & Search
+
+Lists return a cursor envelope, not a collection:
+
+```json
+{ "data": [...], "nextCursor": "6a6f…", "hasMore": true, "limit": 50 }
+```
+
+### Why keyset, not skip
+
+`skip(n)` makes the database walk and discard every preceding document, so page 10,000 costs 10,000
+pages of work. [`pagination.ts`](src/lib/pagination.ts) seeks on `_id` instead, which the index can
+jump straight to. Measured on 200,001 invoices:
+
+| Approach | Latency | Payload |
+|---|---|---|
+| Unbounded `find({ companyId })` (the old behaviour) | 1,518 ms | **123.2 MB** |
+| `skip(99900).limit(100)` | 156 ms | 32 KB |
+| **Keyset cursor at the same depth** | **4 ms** | 32 KB |
+
+Through the HTTP API, latency stays flat as you page deeper — 34 ms for page 1, 16 ms for page 1,000
+(rows 99,901–100,000).
+
+`_id` is the cursor rather than `createdAt` because ObjectIds are unique: a `createdAt` sort can tie,
+and ties make pages silently repeat or skip rows while data is being inserted.
+
+### Search runs on the server
+
+Pages no longer hold the collection and filter it in memory.
+[`usePagedList`](src/hooks/usePagedList.ts) debounces input, queries the server, and drops responses
+from superseded requests so a slow first page cannot overwrite a newer search.
+
+> **Search is anchored (`^term`)** so it can use an index. Prefix search stays fast at any size; true
+> mid-string substring search across millions of rows needs a text index or Atlas Search.
+
+### Counts
+
+Because lists are paginated, counting returned rows would report the page size. `/api/reports/counts`
+uses indexed `countDocuments` for the dashboard totals. List footers say *"Totals for the N loaded
+rows"* rather than presenting a partial sum as the whole.
+
+### Item pickers
+
+Invoice forms need the whole item master, not a page of it, so they call `/api/items?all=true`
+(capped at `MAX_PAGE_SIZE`). The item master screen pages normally, ordered by name.
+
+---
+
+## Invoice Output: Print & PDF
+
+`/sales/[id]` renders a GST tax invoice with the company header, bill-to and ship-to, per-line tax
+split, totals and bank details, plus **Print**, **Download PDF** and **Cancel Invoice**.
+
+The PDF is drawn with jsPDF's vector text API in
+[`invoice-pdf.ts`](src/lib/utils/invoice-pdf.ts) — **not** by screenshotting the page. Two reasons:
+
+1. html2canvas cannot parse the `lab()` / `oklch()` colours Tailwind 4 emits and throws outright; it
+   has had no release since 2022. The dependency has been removed.
+2. Vector output gives selectable, searchable text, a file measured in kilobytes rather than
+   megabytes, and stays crisp when printed — all of which matter for a document that gets filed and
+   sent on.
+
+Measured: 8.6 KB for a one-page invoice, with every field present as real text.
+
+The table switches between CGST+SGST and IGST columns to match the supply type. Printing uses the
+`@media print` block in `globals.css`, which strips the sidebar, headers and action bars.
+
+> The built-in Helvetica font has no rupee glyph, so PDF amounts are plain numbers under an
+> "All amounts in INR" note. The on-screen invoice uses ₹ normally.
 
 ---
 
@@ -227,6 +462,9 @@ src/
 ├── app/
 │   ├── api/                     # Route handlers (the REST surface)
 │   │   ├── auth/[...all]/       # Better Auth endpoints (public)
+│   │   ├── companies/           # Companies, switching, members, invites, export/import
+│   │   ├── invites/[token]/     # Read + accept an invitation (public)
+│   │   ├── reports/counts/      # Document totals for the dashboard
 │   │   ├── invoices/            # Sales invoices  (GET, POST, [id]: GET/PUT/DELETE)
 │   │   ├── purchases/           # Purchase bills  (GET, POST, [id]: GET/DELETE)
 │   │   ├── items/               # Item master     (GET, POST, [id]: GET/PUT/DELETE)
@@ -246,27 +484,46 @@ src/
 │   ├── layout.tsx               # html/body + toaster
 │   ├── page.tsx                 # Redirects to /inventory
 │   ├── login/ · signup/         # Auth screens (rendered bare)
+│   ├── invite/[token]/          # Invitation acceptance (rendered bare)
+│   ├── companies/               # Company management, export / import
+│   ├── settings/team/           # Members, roles, invitations
 │   └── <feature>/page.tsx       # Feature screens
 │
 ├── components/layout/
 │   ├── AppShell.tsx             # Chrome vs. bare layout by route
+│   ├── CompanySwitcher.tsx      # Active-company picker in the header
+│   ├── ReadOnlyBanner.tsx       # Standing notice for guest / view-only roles
+│   ├── nav-items.ts             # Grouped nav, shared by desktop + mobile
 │   ├── desktop/                 # DesktopSidebar, DesktopHeader
 │   └── mobile/                  # MobileHeader
+│
+├── hooks/
+│   ├── useCompanySession.ts     # Current role + canView / canManage
+│   └── usePagedList.ts          # Cursor paging + debounced server search
 │
 ├── lib/
 │   ├── auth.ts                  # Better Auth server config
 │   ├── auth-client.ts           # Better Auth browser client
+│   ├── company-context.ts       # Tenant + role resolution, requirePermission
+│   ├── permissions.ts           # Role × feature matrix (single source of truth)
+│   ├── pagination.ts            # Keyset cursor helpers
 │   ├── models/index.ts          # All Mongoose schemas + models
 │   ├── mongodb.ts               # Cached connection helper
 │   ├── services/
 │   │   ├── invoice-calculator.ts    # GST math (pure, no I/O)
-│   │   └── stock-engine-service.ts  # Stock mutation + ledger
+│   │   ├── stock-engine-service.ts  # Stock mutation + ledger
+│   │   └── company-data-service.ts  # Export / import serialisation
 │   ├── schemas/                 # Zod validation schemas
 │   ├── types/                   # Shared TypeScript interfaces
-│   ├── utils/counter-utils.ts   # Atomic document numbering
+│   ├── utils/
+│   │   ├── counter-utils.ts     # Atomic per-company document numbering
+│   │   ├── invoice-format.ts    # INR formatting, intra/inter-state test
+│   │   └── invoice-pdf.ts       # Vector PDF generation
 │   └── constants/index.ts       # Indian states, GST rates, units
 │
-└── common/regex.ts              # GSTIN, PAN, pincode, phone, HSN patterns
+├── common/regex.ts              # GSTIN, PAN, pincode, phone, HSN patterns
+└── scripts/
+    └── migrate-multi-company.mjs  # One-off tenancy migration (idempotent)
 ```
 
 ---
@@ -275,6 +532,9 @@ src/
 
 All models are defined in [`src/lib/models/index.ts`](src/lib/models/index.ts) and created through a
 `getOrCreateModel` helper that guards against Next.js hot-reload model redefinition.
+
+**Every business collection carries `companyId`** (indexed), and `CompanyModel` carries `ownerId`.
+Those two fields are the whole tenancy model — there is no separate database or schema per company.
 
 | Model | Collection role | Notes |
 |---|---|---|
@@ -290,6 +550,8 @@ All models are defined in [`src/lib/models/index.ts`](src/lib/models/index.ts) a
 | `CompanyModel` | Own company profile | Supplies the home state for GST |
 | `CounterModel` | Sequence generator | One document per series |
 | `GodownModel`, `BatchModel`, `TransporterModel` | Masters | |
+| `CompanyMemberModel` | Who may act in a company | `(companyId, userId)` unique, carries the role |
+| `CompanyInviteModel` | Pending invitations | Single-use token, 14-day expiry |
 | `JournalModel`, `PaymentModel`, `ReceiptModel`, `DeliveryChallanModel` | Accounting scaffolding | Schemas exist; UI not yet built |
 
 ### The stock ledger row
@@ -482,30 +744,43 @@ provided — so manual numbering never burns a sequence value.
 All endpoints return JSON. Errors respond `{ error: string }` with status `500`, or `404` where the
 resource is addressed by id.
 
-Every endpoint below requires a valid session; unauthenticated calls get `401 { error: "Unauthorized" }`
-from the proxy. The exception is `/api/auth/*`, which is public by necessity.
+Every endpoint requires a valid session **and** the permission listed below; unauthenticated calls
+get `401`, and insufficient role gets `403 FORBIDDEN`. `/api/auth/*` and `/api/invites/*` are the
+exceptions — both must work before you have access to anything.
 
-| Endpoint | Methods | Purpose |
-|---|---|---|
-| `/api/auth/*` | `GET`, `POST` | Better Auth — sign-up, sign-in, sign-out, session (**public**) |
-| `/api/invoices` | `GET`, `POST` | List / create sales invoices |
-| `/api/invoices/[id]` | `GET`, `PUT`, `DELETE` | Fetch, update, cancel+revert |
-| `/api/purchases` | `GET`, `POST` | List / create purchase bills |
-| `/api/purchases/[id]` | `GET`, `DELETE` | Fetch, cancel+revert |
-| `/api/items` | `GET`, `POST` | Item master |
-| `/api/items/[id]` | `GET`, `PUT`, `DELETE` | Item detail (hard delete) |
-| `/api/parties` | `GET`, `POST` | Customers & suppliers |
-| `/api/parties/[id]` | `PUT`, `DELETE` | Party detail |
-| `/api/credit-notes` | `GET`, `POST` | Sales returns |
-| `/api/debit-notes` | `GET`, `POST` | Purchase returns |
-| `/api/stock-adjustments` | `GET`, `POST` | Manual stock in/out |
-| `/api/stock-transfers` | `GET`, `POST` | Godown transfers |
-| `/api/inventory/summary` | `GET` | Valuation & low-stock rollup |
-| `/api/inventory/ledger` | `GET` | Ledger; `?itemId=&transactionType=` |
-| `/api/transactions` | `GET` | Unified transaction feed |
-| `/api/company` | `GET`, `POST` | Company profile (self-seeds on first GET) |
-| `/api/godowns` | `GET`, `POST` | Warehouse master |
-| `/api/batches` | `GET`, `POST` | Batch master |
+**Paged** endpoints return `{ data, nextCursor, hasMore, limit }` and accept `?limit=`, `?cursor=`
+(or `?after=` for items) and `?q=` for prefix search.
+
+| Endpoint | Methods | Permission | Notes |
+|---|---|---|---|
+| `/api/auth/*` | `GET`, `POST` | **public** | Better Auth — sign-up, sign-in, sign-out, session |
+| `/api/invites/[token]` | `GET`, `POST` | **public** | Read an invitation; accept it (session + matching email) |
+| `/api/companies` | `GET`, `POST` | session only | Companies you can act in; create one |
+| `/api/companies/active` | `POST` | session only | Switch active company (sets the cookie) |
+| `/api/companies/session` | `GET` | session only | Your role and permission map for the active company |
+| `/api/companies/members` | `GET`, `PATCH`, `DELETE` | `members` | List, change role, remove access |
+| `/api/companies/invites` | `GET`, `POST`, `DELETE` | `members` | Pending invites; invite; revoke |
+| `/api/companies/export` | `GET` | `data:view` | Full company export as JSON |
+| `/api/companies/import` | `POST` | session only | Restore a file as a **new** company |
+| `/api/company` | `GET`, `POST` | `settings` | Active company profile |
+| `/api/invoices` | `GET`, `POST` | `sales` | **Paged** · search: number, party, GSTIN, state |
+| `/api/invoices/[id]` | `GET`, `PUT`, `DELETE` | `sales` | Fetch, update, cancel + revert stock |
+| `/api/purchases` | `GET`, `POST` | `purchases` | **Paged** · search: numbers, supplier, GSTIN, state |
+| `/api/purchases/[id]` | `GET`, `DELETE` | `purchases` | Fetch, cancel + revert stock |
+| `/api/items` | `GET`, `POST` | `inventory` | **Paged** by name · `?all=true` for pickers |
+| `/api/items/[id]` | `GET`, `PUT`, `DELETE` | `inventory` | Item detail (hard delete) |
+| `/api/parties` | `GET`, `POST` | `masters` | Customers & suppliers |
+| `/api/parties/[id]` | `PUT`, `DELETE` | `masters` | Party detail |
+| `/api/credit-notes` | `GET`, `POST` | `notes` | **Paged** · sales returns |
+| `/api/debit-notes` | `GET`, `POST` | `notes` | **Paged** · purchase returns |
+| `/api/stock-adjustments` | `GET`, `POST` | `inventory` | Manual stock in/out |
+| `/api/stock-transfers` | `GET`, `POST` | `inventory` | Godown transfers |
+| `/api/inventory/summary` | `GET` | `inventory` | Valuation & low-stock rollup |
+| `/api/inventory/ledger` | `GET` | `inventory` | **Paged** · `?itemId=&transactionType=` |
+| `/api/transactions` | `GET` | `reports` | Unified transaction feed |
+| `/api/reports/counts` | `GET` | `reports` | Document totals (paging makes list length useless) |
+| `/api/godowns` | `GET`, `POST` | `masters` | Warehouse master |
+| `/api/batches` | `GET`, `POST` | `masters` | Batch master |
 
 ---
 
@@ -516,10 +791,13 @@ Navigation is defined in
 
 | Route | Screen |
 |---|---|
-| `/login` · `/signup` | Auth screens — the only routes reachable signed out |
+| `/login` · `/signup` | Auth screens |
+| `/invite/[token]` | Accept an invitation — reachable signed in or out |
+| `/companies` | Company list, create, switch, export / import |
+| `/settings/team` | Members, roles and pending invitations |
 | `/` | Redirects to `/inventory` |
-| `/sales` · `/sales/new` | Sales invoice list · creation form |
-| `/purchases` · `/purchases/new` | Purchase bill list · creation form |
+| `/sales` · `/sales/new` · `/sales/[id]` | Invoice table · creation form · document view with print/PDF/cancel |
+| `/purchases` · `/purchases/new` · `/purchases/[id]` | Bill table · creation form · document view with ITC and print |
 | `/inventory` | Item master |
 | `/inventory/[id]/ledger` | Per-item stock ledger |
 | `/inventory/adjustments` | Stock adjustments |
@@ -562,12 +840,12 @@ Two independent layers:
 
 Things a new contributor will hit. All are live in the codebase today.
 
-### Sign-up is open, and every account is equal
+### Sign-up is open, and there is no email verification
 
-Anyone who can reach `/signup` can create an account and gets full access to the books — there is no
-invite flow, no email verification (`emailVerified` is stored but never enforced), and no roles or
-permissions. For a single-team internal tool that may be acceptable; for anything internet-facing it
-is not. Better Auth ships an `admin` plugin for roles and supports `requireEmailVerification`.
+Anyone who can reach `/signup` can create an account. They land with **no company and no data** —
+tenancy and membership mean a stranger cannot see your books — but they can still create an account
+on your deployment, and `emailVerified` is stored and never enforced. For anything internet-facing,
+put sign-up behind an invite or enable Better Auth's `requireEmailVerification`.
 
 ### Route handlers do not re-validate input
 
@@ -613,6 +891,66 @@ mid-loop leaves stock partially reverted. A MongoDB session/transaction would ma
 Client-side `catch { }` blocks raise a toast and discard the error object, so failures leave no
 console trace. Route handlers return `error.message` directly to the client, which can leak internal
 detail.
+
+### Party master: complete API, no UI
+
+`/api/parties` (`GET`, `POST`) and `/api/parties/[id]` (`PUT`, `DELETE`) are implemented, the `Party`
+interface and `PartyModel` exist, and `partySchema` is already written in
+[`src/lib/schemas/invoice-schemas.ts`](src/lib/schemas/invoice-schemas.ts) — but **nothing in the UI
+calls any of it**. There is no `/parties` page and no sidebar entry.
+
+The consequence is not cosmetic. Every sales invoice re-types `partyName`, `partyGstin`,
+`partyAddress`, `partyState`, and `partyPincode` by hand, and every purchase bill re-types the
+supplier equivalents. Since `partyState` is what decides CGST/SGST versus IGST, a typo in the state
+field silently produces the wrong tax treatment on a filed invoice. A customer/supplier master with
+an autofill picker on both forms would remove that whole class of error.
+
+`/api/parties/[id]` is also missing a `GET`, unlike the items and invoices equivalents.
+
+### Godown and batch masters have no UI either
+
+`/api/godowns` and `/api/batches` (`GET`, `POST`) have zero UI callers. Godown and batch names are
+typed as free text in the transfer and adjustment forms, so `"Main"` and `"Main "` become different
+locations in the stock ledger.
+
+### Invoices and purchases can be viewed and cancelled, but not edited
+
+`/sales/[id]` and `/purchases/[id]` now exist with print, PDF and cancel-with-stock-reversal.
+`PUT /api/invoices/[id]` is still not called by any screen, so correcting a mistyped invoice means
+cancelling and re-entering it. Only the item master has a real edit path.
+
+### Search is prefix-only
+
+`searchFilter` anchors the regex (`^term`) so the query can use an index. Searching `"Reliance"`
+finds *Reliance Retail*, but searching `"Retail"` does not. Mid-string matching at scale needs a
+MongoDB text index or Atlas Search.
+
+### List totals cover the loaded rows, not the company
+
+Because the lists are paginated, the footer sums only what has been fetched. It says so explicitly
+("Totals for the 50 loaded rows … load more for the full figure") rather than showing a partial sum
+as if it were complete — but if you need true period totals, that is a reporting query the app does
+not have yet.
+
+### Invites are copy-and-paste
+
+No mail transport is configured. Creating an invitation copies the link to your clipboard and you
+send it yourself. Wiring an email provider into
+[`invites/route.ts`](src/app/api/companies/invites/route.ts) is the missing piece.
+
+### Import trusts the file's shape beyond its envelope
+
+`format` and `version` are checked, and rows are re-stamped and re-pointed, but individual documents
+are not schema-validated before `insertMany`. A hand-edited file can therefore create records that
+Mongoose would have rejected on a normal write. Since import always creates a *new* company, the
+blast radius is that one company.
+
+### Offline use is not supported
+
+The app requires a connection for every read and write. See the sync discussion in the project
+notes: the two conflict cases that need a decision first are concurrent stock movements (two devices
+selling the last unit) and concurrent numbering (two devices both issuing `INV-001`, which the
+per-company unique index rejects).
 
 ### Unbuilt scaffolding
 

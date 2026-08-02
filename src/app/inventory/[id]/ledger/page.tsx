@@ -24,8 +24,8 @@ export default function ItemLedgerPage({ params }: { params: Promise<{ id: strin
           setItem(itemData);
         }
         if (ledgerRes.ok) {
-          const ledgerData = await ledgerRes.json();
-          setLedgers(ledgerData);
+          const payload = await ledgerRes.json();
+          setLedgers(payload.data ?? payload);
         }
       } catch (e) {
         console.error("Failed to load item stock ledger", e);

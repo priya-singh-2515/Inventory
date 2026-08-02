@@ -17,13 +17,17 @@ export default function DashboardPage() {
   useEffect(() => {
     async function loadStats() {
       try {
-        const [sRes, pRes, sumRes] = await Promise.all([
-          fetch("/api/invoices"),
-          fetch("/api/purchases"),
+        const [sRes, sumRes] = await Promise.all([
+          fetch("/api/reports/counts"),
           fetch("/api/inventory/summary"),
         ]);
-        if (sRes.ok) setSalesCount((await sRes.json()).length);
-        if (pRes.ok) setPurchasesCount((await pRes.json()).length);
+        // Counts come from a dedicated endpoint: the lists are paginated, so
+        // their length would only ever report one page.
+        if (sRes.ok) {
+          const counts = await sRes.json();
+          setSalesCount(counts.sales);
+          setPurchasesCount(counts.purchases);
+        }
         if (sumRes.ok) setSummary(await sumRes.json());
       } catch (e) {
         console.error(e);

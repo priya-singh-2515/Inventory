@@ -2,6 +2,7 @@ import { ItemModel, StockLedgerModel } from "@/lib/models";
 import { TransactionType } from "@/lib/types/inventory";
 
 export interface StockMovementInput {
+  companyId: string;
   itemId: string;
   itemName: string;
   transactionType: TransactionType;
@@ -16,7 +17,8 @@ export interface StockMovementInput {
 }
 
 export async function processStockMovement(movement: StockMovementInput): Promise<number> {
-  const item = await ItemModel.findById(movement.itemId);
+  // Scoped lookup: an item id from another company must not resolve.
+  const item = await ItemModel.findOne({ _id: movement.itemId, companyId: movement.companyId });
   if (!item) {
     throw new Error(`Item not found for stock update: ${movement.itemId}`);
   }
@@ -38,6 +40,7 @@ export async function processStockMovement(movement: StockMovementInput): Promis
 
   // Create immutable StockLedger record
   await StockLedgerModel.create({
+    companyId: movement.companyId,
     date: movement.date ? new Date(movement.date) : new Date(),
     itemId: item._id,
     itemName: item.name,
@@ -56,14 +59,15 @@ export async function processStockMovement(movement: StockMovementInput): Promis
 }
 
 export async function revertStockMovement(
+  companyId: string,
   referenceId: string,
   transactionType: TransactionType
 ): Promise<void> {
   // Find all stock ledger records for this transaction reference
-  const ledgers = await StockLedgerModel.find({ referenceId, transactionType });
+  const ledgers = await StockLedgerModel.find({ companyId, referenceId, transactionType });
 
   for (const ledger of ledgers) {
-    const item = await ItemModel.findById(ledger.itemId);
+    const item = await ItemModel.findOne({ _id: ledger.itemId, companyId });
     if (item && item.type === "Product") {
       // Inverse the delta: subtract qtyIn that was added, add back qtyOut that was removed
       const reverseDelta = ledger.qtyOut - ledger.qtyIn;
@@ -75,5 +79,5 @@ export async function revertStockMovement(
   }
 
   // Remove the old ledger records
-  await StockLedgerModel.deleteMany({ referenceId, transactionType });
+  await StockLedgerModel.deleteMany({ companyId, referenceId, transactionType });
 }

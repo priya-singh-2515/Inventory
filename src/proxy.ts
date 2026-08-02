@@ -1,13 +1,22 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 
-/** Pages reachable without a session. Everything else is gated. */
-const PUBLIC_PAGES = ["/login", "/signup"];
+/**
+ * Sign-in screens: reachable without a session, and pointless with one — a
+ * signed-in visitor is sent to the app instead.
+ */
+const AUTH_PAGES = ["/login", "/signup"];
 
-function isPublicPage(pathname: string): boolean {
-  return PUBLIC_PAGES.some(
-    (page) => pathname === page || pathname.startsWith(`${page}/`)
-  );
+/**
+ * Open either way. An invitee must be able to read what they were offered
+ * before signing in, AND an already-signed-in user must be able to accept
+ * rather than being bounced to the dashboard. Accepting still requires a
+ * session whose email matches the invite.
+ */
+const OPEN_ROUTES = ["/invite", "/api/invites"];
+
+function matches(pathname: string, routes: string[]): boolean {
+  return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
 export async function proxy(request: NextRequest) {
@@ -15,6 +24,11 @@ export async function proxy(request: NextRequest) {
 
   // Full session validation, not just a cookie-presence check — a forged
   // cookie must not be enough to reach the API.
+  // Invite links bypass the gate entirely, signed in or not.
+  if (matches(pathname, OPEN_ROUTES)) {
+    return NextResponse.next();
+  }
+
   const session = await auth.api.getSession({ headers: request.headers });
   const isApi = pathname.startsWith("/api");
 
@@ -23,7 +37,7 @@ export async function proxy(request: NextRequest) {
     if (isApi) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (isPublicPage(pathname)) {
+    if (matches(pathname, AUTH_PAGES)) {
       return NextResponse.next();
     }
     const loginUrl = new URL("/login", request.url);
@@ -32,7 +46,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Already signed in — keep them out of the login/signup screens.
-  if (isPublicPage(pathname)) {
+  if (matches(pathname, AUTH_PAGES)) {
     return NextResponse.redirect(new URL("/inventory", request.url));
   }
 
