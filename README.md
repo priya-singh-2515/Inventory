@@ -516,6 +516,7 @@ Navigation is defined in
 
 | Route | Screen |
 |---|---|
+| `/login` · `/signup` | Auth screens — the only routes reachable signed out |
 | `/` | Redirects to `/inventory` |
 | `/sales` · `/sales/new` | Sales invoice list · creation form |
 | `/purchases` · `/purchases/new` | Purchase bill list · creation form |
@@ -560,6 +561,13 @@ Two independent layers:
 ## Known Issues & Gotchas
 
 Things a new contributor will hit. All are live in the codebase today.
+
+### Sign-up is open, and every account is equal
+
+Anyone who can reach `/signup` can create an account and gets full access to the books — there is no
+invite flow, no email verification (`emailVerified` is stored but never enforced), and no roles or
+permissions. For a single-team internal tool that may be acceptable; for anything internet-facing it
+is not. Better Auth ships an `admin` plugin for roles and supports `requireEmailVerification`.
 
 ### Route handlers do not re-validate input
 
