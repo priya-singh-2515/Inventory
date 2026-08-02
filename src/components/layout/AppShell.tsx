@@ -8,7 +8,7 @@ import { ReadOnlyBanner } from "@/components/layout/ReadOnlyBanner";
 import { KeyboardProvider } from "@/components/keyboard/KeyboardProvider";
 
 /** Routes that render standalone, without the app navigation chrome. */
-const BARE_ROUTES = ["/login", "/signup", "/invite"];
+const BARE_ROUTES = ["/login", "/signup", "/invite", "/onboarding"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

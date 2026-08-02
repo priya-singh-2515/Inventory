@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Receipt, ArrowLeft, Search, ArrowUpRight, ArrowDownLeft, RefreshCw } from "lucide-react";
+import { Receipt, ArrowLeft, Search, ArrowUpRight, ArrowDownLeft, RefreshCw , ExternalLink } from "lucide-react";
 
 interface Transaction {
   id: string;
@@ -13,6 +13,17 @@ interface Transaction {
   amount: number;
   status: string;
   createdAt: string;
+}
+
+/**
+ * Where a transaction row leads. Sales invoices and purchase bills have detail
+ * views; the other document types do not yet, so those rows stay plain text
+ * rather than linking somewhere that 404s.
+ */
+function documentHref(t: Transaction): string | null {
+  if (t.type === "Sales Invoice") return `/sales/${t.id}`;
+  if (t.type === "Purchase Bill") return `/purchases/${t.id}`;
+  return null;
 }
 
 export default function TransactionsPage() {
@@ -187,7 +198,19 @@ export default function TransactionsPage() {
                         {t.type}
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 font-mono text-xs font-bold text-slate-800">{t.voucherNo}</td>
+                    <td className="py-3.5 px-4 font-mono text-xs font-bold text-slate-800">
+                      {documentHref(t) ? (
+                        <Link
+                          href={documentHref(t)!}
+                          className="text-[#0b2641] hover:underline inline-flex items-center gap-1"
+                        >
+                          {t.voucherNo}
+                          <ExternalLink className="w-3 h-3 opacity-50" />
+                        </Link>
+                      ) : (
+                        t.voucherNo
+                      )}
+                    </td>
                     <td className="py-3.5 px-4 text-slate-800 font-medium">{t.partyName || "-"}</td>
                     <td className="py-3.5 px-4 text-right font-bold text-slate-900">
                       {t.amount > 0 ? `₹${t.amount.toLocaleString("en-IN")}` : "-"}

@@ -3,9 +3,10 @@
 import { useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search, CheckCircle, XCircle, Eye } from "lucide-react";
+import { Plus, Search, CheckCircle, XCircle, Eye, FileText } from "lucide-react";
 import { Invoice } from "@/lib/types/invoice";
 import { formatInr } from "@/lib/utils/invoice-format";
+import { EmptyState } from "@/components/EmptyState";
 import { useListKeyboardNav } from "@/hooks/useListKeyboardNav";
 import { usePagedList } from "@/hooks/usePagedList";
 
@@ -102,14 +103,24 @@ export default function SalesInvoicesPage() {
             <tbody className="divide-y divide-slate-100 text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-10 text-center text-slate-400">
+                  <td colSpan={11} className="p-0">
                     Loading sales invoices...
                   </td>
                 </tr>
               ) : filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-10 text-center text-slate-400">
-                    No sales invoices found.
+                  <td colSpan={11} className="p-0">
+                    <EmptyState
+                      icon={FileText}
+                      title={searchTerm ? "No invoices match that search" : "No sales invoices yet"}
+                      description={
+                        searchTerm
+                          ? "Search matches the start of an invoice number, customer, GSTIN or state."
+                          : "Raise your first GST invoice — stock is deducted and the ledger updated automatically."
+                      }
+                      actionLabel={searchTerm ? undefined : "New Sales Invoice"}
+                      actionHref="/sales/new"
+                    />
                   </td>
                 </tr>
               ) : (

@@ -10,6 +10,8 @@ import { InvoiceItem } from "@/lib/types/invoice";
 import { ItemMaster } from "@/lib/types/inventory";
 import { INDIAN_STATES, ITC_ELIGIBILITY_OPTIONS } from "@/lib/constants";
 import { UnitSelect } from "@/components/forms/UnitSelect";
+import { PartySelect } from "@/components/forms/PartySelect";
+import type { Party } from "@/lib/types/common";
 
 interface PurchaseBillFormInput {
   supplierInvoiceNo: string;
@@ -35,6 +37,7 @@ export default function CreatePurchaseBillPage() {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<PurchaseBillFormInput>({
     defaultValues: {
@@ -64,6 +67,16 @@ export default function CreatePurchaseBillPage() {
     }
     loadMasterItems();
   }, []);
+
+  /** Copy a saved supplier into the supplier fields. */
+  function applyParty(party: Party | null) {
+    if (!party) return;
+    setValue("supplierName", party.name);
+    setValue("supplierGstin", party.gstin ?? "");
+    setValue("supplierAddress", party.address ?? "");
+    // State decides whether input tax is CGST+SGST or IGST.
+    setValue("supplierState", party.state);
+  }
 
   function handleAddItem() {
     setItems([
@@ -200,6 +213,8 @@ export default function CreatePurchaseBillPage() {
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
           <h3 className="font-bold text-[#0b2641] text-base">Supplier & Bill Information</h3>
 
+          <PartySelect partyType="Supplier" onSelect={applyParty} />
+
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier Bill/Invoice No *</label>
@@ -250,6 +265,16 @@ export default function CreatePurchaseBillPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier GSTIN</label>
+              <input
+                type="text"
+                placeholder="27ABCDE1234F1Z5"
+                {...register("supplierGstin")}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono uppercase"
+              />
+            </div>
+
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier Address *</label>
               <input

@@ -282,6 +282,14 @@ const ItemSchema = new Schema(
 const CompanySchema = new Schema(
   {
     ownerId: { type: String, required: true, index: true },
+    // Invoice preferences — previously the InvoiceSettings interface existed
+    // but nothing persisted or read it, so prefixes were hardcoded in routes.
+    invoicePrefix: { type: String, default: "INV" },
+    purchasePrefix: { type: String, default: "PUR" },
+    creditNotePrefix: { type: String, default: "CN" },
+    debitNotePrefix: { type: String, default: "DN" },
+    defaultPaymentTerms: { type: String, default: "" },
+    defaultNotes: { type: String, default: "" },
     gstin: { type: String, required: true },
     legalName: { type: String, required: true },
     tradeName: { type: String, required: true },
@@ -447,6 +455,8 @@ StockLedgerSchema.index({ companyId: 1, _id: -1 });
 StockLedgerSchema.index({ companyId: 1, itemId: 1, _id: -1 });
 // Items page by name, and the search matches on a name prefix.
 ItemSchema.index({ companyId: 1, name: 1 });
+PartySchema.index({ companyId: 1, name: 1 });
+PartySchema.index({ companyId: 1, partyType: 1, name: 1 });
 // Prefix search targets on the document lists.
 InvoiceSchema.index({ companyId: 1, partyName: 1 });
 PurchaseInvoiceSchema.index({ companyId: 1, supplierName: 1 });

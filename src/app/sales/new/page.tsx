@@ -10,6 +10,8 @@ import { InvoiceItem } from "@/lib/types/invoice";
 import { ItemMaster } from "@/lib/types/inventory";
 import { INDIAN_STATES } from "@/lib/constants";
 import { UnitSelect } from "@/components/forms/UnitSelect";
+import { PartySelect } from "@/components/forms/PartySelect";
+import type { Party } from "@/lib/types/common";
 
 interface SalesInvoiceFormInput {
   date: string;
@@ -36,6 +38,7 @@ export default function CreateSalesInvoicePage() {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<SalesInvoiceFormInput>({
     defaultValues: {
@@ -65,6 +68,19 @@ export default function CreateSalesInvoicePage() {
     }
     loadMasterItems();
   }, []);
+
+  /** Copy a saved customer into the bill-to fields. */
+  function applyParty(party: Party | null) {
+    if (!party) return;
+    setValue("partyName", party.name);
+    setValue("partyGstin", party.gstin ?? "");
+    setValue("partyAddress", party.address ?? "");
+    setValue("partyPlace", party.city ?? "");
+    setValue("partyPincode", party.pincode ?? "");
+    // Last, and the reason this picker exists: state drives the CGST/SGST vs
+    // IGST split, so it must come from the saved record rather than retyping.
+    setValue("partyState", party.state);
+  }
 
   function handleAddItem() {
     setItems([
@@ -201,6 +217,8 @@ export default function CreateSalesInvoicePage() {
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
           <h3 className="font-bold text-[#0b2641] text-base">Customer / Bill To Details</h3>
 
+          <PartySelect partyType="Customer" onSelect={applyParty} />
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Customer Name *</label>
@@ -256,6 +274,21 @@ export default function CreateSalesInvoicePage() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                City / Place of Supply *
+              </label>
+              <input
+                type="text"
+                placeholder="Mumbai"
+                {...register("partyPlace", { required: "Place of supply is required" })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"
+              />
+              {errors.partyPlace && (
+                <p className="text-xs text-rose-600 mt-0.5">{errors.partyPlace.message}</p>
+              )}
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Pincode *</label>
               <input

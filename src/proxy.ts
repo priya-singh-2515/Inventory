@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { connectToDatabase } from "@/lib/mongodb";
+import { CompanyMemberModel } from "@/lib/models";
 
 /**
  * Sign-in screens: reachable without a session, and pointless with one — a
@@ -14,6 +16,9 @@ const AUTH_PAGES = ["/login", "/signup"];
  * session whose email matches the invite.
  */
 const OPEN_ROUTES = ["/invite", "/api/invites"];
+
+/** Reachable with a session but without belonging to any company yet. */
+const SETUP_ROUTES = ["/onboarding", "/companies"];
 
 function matches(pathname: string, routes: string[]): boolean {
   return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
@@ -48,6 +53,20 @@ export async function proxy(request: NextRequest) {
   // Already signed in — keep them out of the login/signup screens.
   if (matches(pathname, AUTH_PAGES)) {
     return NextResponse.redirect(new URL("/inventory", request.url));
+  }
+
+  // First run: a signed-in user who belongs to no company cannot use any
+  // business screen, so send them to setup rather than letting every page fail
+  // with NO_COMPANY. Only page navigations are redirected — API callers get the
+  // 409 so they can handle it themselves.
+  if (!isApi && !matches(pathname, SETUP_ROUTES)) {
+    await connectToDatabase();
+    const membership = await CompanyMemberModel.findOne({ userId: session.user.id })
+      .select("_id")
+      .lean();
+    if (!membership) {
+      return NextResponse.redirect(new URL("/onboarding", request.url));
+    }
   }
 
   return NextResponse.next();

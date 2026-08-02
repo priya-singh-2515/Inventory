@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, Search, CheckCircle, XCircle, Eye } from "lucide-react";
+import { Plus, Search, CheckCircle, XCircle, Eye, ShoppingBag } from "lucide-react";
 import { PurchaseInvoice } from "@/lib/types/invoice";
 import { formatInr } from "@/lib/utils/invoice-format";
+import { EmptyState } from "@/components/EmptyState";
 import { usePagedList } from "@/hooks/usePagedList";
 
 /** ITC buckets get their own colour so ineligible input tax stands out. */
@@ -99,14 +100,24 @@ export default function PurchaseInvoicesPage() {
             <tbody className="divide-y divide-slate-100 text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="py-10 text-center text-slate-400">
+                  <td colSpan={13} className="p-0">
                     Loading purchase bills...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-10 text-center text-slate-400">
-                    No purchase bills found.
+                  <td colSpan={13} className="p-0">
+                    <EmptyState
+                      icon={ShoppingBag}
+                      title={searchTerm ? "No bills match that search" : "No purchase bills yet"}
+                      description={
+                        searchTerm
+                          ? "Search matches the start of a bill number, supplier, GSTIN or state."
+                          : "Record your first supplier bill — stock is added and input tax credit tracked."
+                      }
+                      actionLabel={searchTerm ? undefined : "New Purchase Bill"}
+                      actionHref="/purchases/new"
+                    />
                   </td>
                 </tr>
               ) : (

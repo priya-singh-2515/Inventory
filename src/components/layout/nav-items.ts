@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Receipt,
   Settings,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 
@@ -49,6 +50,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Purchase Bills", href: "/purchases", icon: ShoppingBag },
       { label: "Debit Notes", href: "/debit-notes", icon: TrendingUp },
     ],
+  },
+  {
+    title: "Masters",
+    items: [{ label: "Customers & Suppliers", href: "/parties", icon: Users }],
   },
   {
     title: "Inventory",

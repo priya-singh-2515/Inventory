@@ -38,13 +38,18 @@ export async function POST(req: Request) {
     const { companyId } = ctx.context;
     const body = await req.json();
 
-    let purchaseInvoiceNumber = body.purchaseInvoiceNumber;
-    if (!purchaseInvoiceNumber) {
-      purchaseInvoiceNumber = await getNextCounterValue(companyId, "purchase-invoice", "PUR");
-    }
-
+    // Loaded first: it supplies both the numbering prefix and the home state.
     const company = await CompanyModel.findOne({ _id: companyId });
     const companyState = company?.state || "Maharashtra";
+
+    let purchaseInvoiceNumber = body.purchaseInvoiceNumber;
+    if (!purchaseInvoiceNumber) {
+      purchaseInvoiceNumber = await getNextCounterValue(
+        companyId,
+        "purchase-invoice",
+        company?.purchasePrefix || "PUR"
+      );
+    }
 
     const calcResult = calculateInvoiceTaxes(
       body.items || [],

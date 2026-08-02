@@ -1,233 +1,151 @@
 "use client";
 
-import { useEffect } from "react";
-import { Building, Save } from "lucide-react";
-import { useForm } from "react-hook-form";
-import toast from "react-hot-toast";
-import { INDIAN_STATES } from "@/lib/constants";
+import Link from "next/link";
+import {
+  Building,
+  Users,
+  Hash,
+  Boxes,
+  Database,
+  ChevronRight,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
+import { useCompanySession } from "@/hooks/useCompanySession";
+import { ROLE_DEFINITIONS, type Feature } from "@/lib/permissions";
 
-interface CompanySettingsFormInput {
-  gstin: string;
-  legalName: string;
-  tradeName: string;
-  address1: string;
-  location: string;
-  pincode: number;
-  stateCode: string;
-  state: string;
-  phone: string;
-  email: string;
-  bankName: string;
-  bankAccountNo: string;
-  bankIfsc: string;
-  bankBranch: string;
+interface SettingCard {
+  href: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  /** Feature gate — the card is hidden when the role cannot even view it. */
+  feature: Feature;
+  /** Shown when the role can view but not change anything here. */
+  readOnlyNote?: string;
 }
 
+const CARDS: SettingCard[] = [
+  {
+    href: "/settings/company",
+    title: "Company Profile",
+    description: "GST registration, business address and bank details that print on every invoice.",
+    icon: Building,
+    feature: "settings",
+  },
+  {
+    href: "/settings/invoice",
+    title: "Invoice Preferences",
+    description: "Document numbering prefixes, default payment terms and invoice footer notes.",
+    icon: Hash,
+    feature: "settings",
+  },
+  {
+    href: "/settings/team",
+    title: "Team & Access",
+    description: "Invite people, set roles, and revoke access. Includes read-only guest access.",
+    icon: Users,
+    feature: "members",
+  },
+  {
+    href: "/companies",
+    title: "Companies",
+    description: "Switch between businesses, create another, or export and import a full company.",
+    icon: Boxes,
+    feature: "data",
+  },
+];
+
 export default function SettingsPage() {
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    reset,
-    formState: { errors },
-  } = useForm<CompanySettingsFormInput>({
-    defaultValues: {
-      gstin: "27AAACG0000A1Z5",
-      legalName: "Ethara AI Solutions Pvt Ltd",
-      tradeName: "Ethara AI Store",
-      address1: "Unit 101, Business Park",
-      location: "Mumbai",
-      pincode: 400001,
-      stateCode: "27",
-      state: "Maharashtra",
-      phone: "9876543210",
-      email: "info@store.in",
-      bankName: "HDFC Bank",
-      bankAccountNo: "50200012345678",
-      bankIfsc: "HDFC0000123",
-      bankBranch: "Fort Mumbai",
-    },
-  });
+  const { session, canView, canManage, loading } = useCompanySession();
 
-  useEffect(() => {
-    async function loadCompany() {
-      try {
-        const res = await fetch("/api/company");
-        if (res.ok) {
-          const data = await res.json();
-          if (data) reset(data);
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    loadCompany();
-  }, [reset]);
-
-  async function onSubmit(formData: CompanySettingsFormInput) {
-    const toastId = toast.loading("Saving company profile settings...");
-    try {
-      const res = await fetch("/api/company", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-      if (res.ok) {
-        toast.success("Company settings saved successfully!", { id: toastId });
-      } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to save settings", { id: toastId });
-      }
-    } catch {
-      toast.error("Network error occurred", { id: toastId });
-    }
-  }
+  const visible = CARDS.filter((card) => canView(card.feature));
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-[#0b2641]">Company Settings</h1>
-        <p className="text-sm text-slate-500">Configure Indian GST registration details, business address & bank accounts</p>
+        <h1 className="text-2xl font-bold text-[#0b2641]">Settings</h1>
+        <p className="text-sm text-slate-500">
+          Everything about this company, its documents and who can reach them
+        </p>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {/* Business Details */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center gap-2 text-[#0b2641]">
-            <Building className="w-5 h-5" />
-            <h3 className="font-bold text-base">GST Business Details</h3>
+      {/* Current context — which company and what this role can do. */}
+      {session && (
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center gap-4">
+          <div className="p-3 bg-slate-50 text-[#0b2641] rounded-lg border border-slate-200">
+            <ShieldCheck className="w-5 h-5" />
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Company GSTIN *</label>
-              <input
-                type="text"
-                placeholder="27AAACG0000A1Z5"
-                {...register("gstin", { required: "GSTIN is required" })}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono uppercase"
-              />
-              {errors.gstin && <p className="text-xs text-rose-600 mt-0.5">{errors.gstin.message}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Legal Name *</label>
-              <input
-                type="text"
-                placeholder="Legal Business Name"
-                {...register("legalName", { required: "Legal name is required" })}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"
-              />
-              {errors.legalName && <p className="text-xs text-rose-600 mt-0.5">{errors.legalName.message}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Trade Name *</label>
-              <input
-                type="text"
-                placeholder="Trade / Brand Name"
-                {...register("tradeName", { required: "Trade name is required" })}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"
-              />
-              {errors.tradeName && <p className="text-xs text-rose-600 mt-0.5">{errors.tradeName.message}</p>}
-            </div>
+          <div className="flex-1 min-w-[220px]">
+            <p className="text-sm font-bold text-slate-800">{session.companyName}</p>
+            <p className="text-xs text-slate-500">
+              Signed in as {session.email} · <span className="font-semibold">{session.roleLabel}</span>
+            </p>
           </div>
+          <p className="text-xs text-slate-400 max-w-sm">
+            {ROLE_DEFINITIONS[session.role]?.description}
+          </p>
+        </div>
+      )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Registered Address *</label>
-              <input
-                type="text"
-                placeholder="Building, street address"
-                {...register("address1", { required: "Address is required" })}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"
-              />
-              {errors.address1 && <p className="text-xs text-rose-600 mt-0.5">{errors.address1.message}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">State *</label>
-              <select
-                {...register("state", {
-                  required: "State is required",
-                  onChange: (e) => {
-                    const selectedState = INDIAN_STATES.find((s) => s.name === e.target.value);
-                    if (selectedState) setValue("stateCode", selectedState.code);
-                  },
-                })}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"
+      {loading ? (
+        <div className="py-12 text-center text-slate-400 text-sm">Loading settings...</div>
+      ) : visible.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-12 text-center space-y-2">
+          <ShieldCheck className="w-8 h-8 mx-auto text-slate-300" />
+          <h2 className="text-lg font-bold text-[#0b2641]">Nothing to configure</h2>
+          <p className="text-sm text-slate-500">
+            Your role does not have access to any settings area.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {visible.map((card) => {
+            const Icon = card.icon;
+            const viewOnly = !canManage(card.feature);
+
+            return (
+              <Link
+                key={card.href}
+                href={card.href}
+                className="group bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex items-start gap-4"
               >
-                {INDIAN_STATES.map((st) => (
-                  <option key={st.code} value={st.name}>
-                    {st.code} - {st.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Pincode *</label>
-              <input
-                type="number"
-                {...register("pincode", { valueAsNumber: true, required: "Pincode is required" })}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"
-              />
-              {errors.pincode && <p className="text-xs text-rose-600 mt-0.5">{errors.pincode.message}</p>}
-            </div>
+                <div className="p-3 bg-slate-50 text-[#0b2641] rounded-lg border border-slate-200 group-hover:bg-[#0b2641] group-hover:text-white transition-colors">
+                  <Icon className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-slate-800">{card.title}</h2>
+                    {viewOnly && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+                        view only
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{card.description}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-[#0b2641] transition-colors mt-1" />
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Masters that have an API but no dedicated screen yet — stated plainly
+          rather than left as a mystery gap. */}
+      <div className="bg-slate-50 rounded-xl border border-dashed border-slate-300 p-5">
+        <div className="flex items-start gap-3">
+          <Database className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-sm font-bold text-slate-700">Not built yet</h2>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              Party (customer &amp; supplier), godown and batch masters have working APIs but no
+              screens — they are still typed as free text on the invoice forms. Journals, payments,
+              receipts and delivery challans have schemas only.
+            </p>
           </div>
         </div>
-
-        {/* Bank Details */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
-          <h3 className="font-bold text-[#0b2641] text-base">Bank Account Information (Displayed on Invoices)</h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Bank Name</label>
-              <input
-                type="text"
-                placeholder="Bank Name"
-                {...register("bankName")}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Account Number</label>
-              <input
-                type="text"
-                placeholder="Account No"
-                {...register("bankAccountNo")}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">IFSC Code</label>
-              <input
-                type="text"
-                placeholder="HDFC0000123"
-                {...register("bankIfsc")}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono uppercase"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Branch</label>
-              <input
-                type="text"
-                placeholder="Branch name"
-                {...register("bankBranch")}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Submit */}
-        <div className="flex items-center justify-between">
-          <button
-            type="submit"
-            className="ml-auto flex items-center gap-2 px-6 py-3 bg-[#0b2641] hover:bg-blue-900 text-white font-bold text-sm rounded-xl shadow-md transition-colors"
-          >
-            <Save className="w-4 h-4" />
-            <span>Save Company Settings</span>
-          </button>
-        </div>
-      </form>
+      </div>
     </div>
   );
 }
